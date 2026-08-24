@@ -2,6 +2,9 @@ import asyncio
 from mavsdk import System
 
 
+TAKEOFF_ALTITUDE = 2.5
+
+
 async def run():
     drone = System()
 
@@ -23,8 +26,8 @@ async def run():
             print("Vehicle is ready!")
             break
 
-    print("Setting takeoff altitude to 2.5 meters...")
-    await drone.action.set_takeoff_altitude(2.5)
+    print(f"Setting takeoff altitude to {TAKEOFF_ALTITUDE} meters...")
+    await drone.action.set_takeoff_altitude(TAKEOFF_ALTITUDE)
 
     print("Arming...")
     await drone.action.arm()
@@ -32,7 +35,20 @@ async def run():
     print("Taking off...")
     await drone.action.takeoff()
 
-    await asyncio.sleep(8)
+    print("Waiting to reach target altitude...")
+
+    async for position in drone.telemetry.position():
+
+        altitude = position.relative_altitude_m
+
+        print(f"Altitude: {altitude:.2f} m")
+
+        if altitude >= TAKEOFF_ALTITUDE * 0.90:
+            print("Target altitude reached!")
+            break
+
+    print("Hovering for 5 seconds...")
+    await asyncio.sleep(5)
 
     print("Landing...")
     await drone.action.land()
