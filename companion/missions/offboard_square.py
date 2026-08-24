@@ -33,7 +33,7 @@ async def get_local_position(drone):
         return north, east
 
 
-async def move(drone, north_speed, east_speed, distance):
+async def move(drone, north_speed, east_speed, distance, yaw):
     start_north, start_east = await get_local_position(drone)
 
     print(
@@ -47,7 +47,7 @@ async def move(drone, north_speed, east_speed, distance):
             north_speed,
             east_speed,
             0.0,
-            0.0
+            yaw
         )
     )
 
@@ -73,7 +73,7 @@ async def move(drone, north_speed, east_speed, distance):
             0.0,
             0.0,
             0.0,
-            0.0
+            yaw
         )
     )
 
@@ -140,7 +140,8 @@ async def run():
         drone,
         north_speed=MOVE_SPEED,
         east_speed=0.0,
-        distance=TARGET_DISTANCE
+        distance=TARGET_DISTANCE,
+        yaw=0.0
     )
 
     print("\n2 - Moving East")
@@ -148,7 +149,8 @@ async def run():
         drone,
         north_speed=0.0,
         east_speed=MOVE_SPEED,
-        distance=TARGET_DISTANCE
+        distance=TARGET_DISTANCE,
+        yaw=90.0
     )
 
     print("\n3 - Moving South")
@@ -156,7 +158,8 @@ async def run():
         drone,
         north_speed=-MOVE_SPEED,
         east_speed=0.0,
-        distance=TARGET_DISTANCE
+        distance=TARGET_DISTANCE,
+        yaw=180.0
     )
 
     print("\n4 - Moving West")
@@ -164,7 +167,8 @@ async def run():
         drone,
         north_speed=0.0,
         east_speed=-MOVE_SPEED,
-        distance=TARGET_DISTANCE
+        distance=TARGET_DISTANCE,
+        yaw=270.0
     )
 
     print("Square completed!")
