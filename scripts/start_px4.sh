@@ -13,4 +13,4 @@ export GZ_SIM_SYSTEM_PLUGIN_PATH="$PX4_DIR/build/px4_sitl_default/src/modules/si
 export GZ_IP=127.0.0.1
 
 echo "Starting PX4 SITL with X500..."
-PX4_GZ_STANDALONE=1 make px4_sitl gz_x500
+PX4_GZ_STANDALONE=1 make px4_sitl gz_x500_mono_cam

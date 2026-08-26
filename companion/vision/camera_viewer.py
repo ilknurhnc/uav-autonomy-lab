@@ -7,7 +7,7 @@ from gz.msgs10.image_pb2 import Image
 
 
 CAMERA_TOPIC = (
-    "/world/default/model/x500_mono_cam_0/"
+    "/world/vision_test/model/x500_mono_cam_0/"
     "link/camera_link/sensor/camera/image"
 )
 
