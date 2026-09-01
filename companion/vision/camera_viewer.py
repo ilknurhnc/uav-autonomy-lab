@@ -67,10 +67,6 @@ def main():
 
         if frame_to_show is not None:
 
-            # -------------------------------------------------
-            # 1. Convert BGR image to HSV
-            # -------------------------------------------------
-
             hsv = cv2.cvtColor(
                 frame_to_show,
                 cv2.COLOR_BGR2HSV

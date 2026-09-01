@@ -3,6 +3,25 @@ import asyncio
 from mavsdk.offboard import VelocityNedYaw
 
 
+def calculate_control_command(
+    error_x,
+    kp=0.002,
+    deadband=20,
+    max_command=1.0
+):
+    if abs(error_x) < deadband:
+        return 0.0
+
+    command = kp * error_x
+
+    command = max(
+        -max_command,
+        min(max_command, command)
+    )
+
+    return command
+
+
 async def get_local_position(drone):
     async for position_ned in drone.telemetry.position_velocity_ned():
         north = position_ned.position.north_m
