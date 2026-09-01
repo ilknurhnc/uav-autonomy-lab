@@ -1,6 +1,6 @@
 import asyncio
 
-from mavsdk.offboard import VelocityNedYaw
+from mavsdk.offboard import VelocityNedYaw, VelocityBodyYawspeed
 
 
 def calculate_control_command(
@@ -21,6 +21,11 @@ def calculate_control_command(
 
     return command
 
+def control_to_yaw_speed(
+    control_command,
+    max_yaw_speed=30.0
+):
+    return control_command * max_yaw_speed
 
 async def get_local_position(drone):
     async for position_ned in drone.telemetry.position_velocity_ned():

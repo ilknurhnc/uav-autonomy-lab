@@ -5,6 +5,8 @@ import threading
 from gz.transport13 import Node
 from gz.msgs10.image_pb2 import Image
 
+from companion.autonomy.motion_controller import (calculate_control_command, control_to_yaw_speed)
+
 
 CAMERA_TOPIC = (
     "/world/vision_test/model/x500_mono_cam_0/"
@@ -129,6 +131,9 @@ def main():
                     error_x = target_x - center_x
                     error_y = target_y - center_y
 
+                    control_command = calculate_control_command(error_x)
+                    yaw_speed = control_to_yaw_speed(control_command)
+
                     cv2.rectangle(
                         frame_to_show,
                         (x, y),
@@ -156,6 +161,8 @@ def main():
                     print(
                         f"Target: ({target_x}, {target_y}) "
                         f"Error: ({error_x}, {error_y}) "
+                        f"Control: {control_command:.2f} "
+                        f"Yaw speed: {yaw_speed:.1f} deg/s "
                         f"Area: {area:.0f}"
                     )
 
