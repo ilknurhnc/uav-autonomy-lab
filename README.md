@@ -1,864 +1,699 @@
-# UAV Autonomy Lab — İHA Otonomi Laboratuvarı
+# UAV Autonomy Lab — Autonomous UAV Software & Vision-Guided Flight
 
-PX4, Gazebo, MAVSDK, Python, C++, OpenCV, ağ programlama (Networking), yapay zekâ, ROS2 ve çoklu İHA sistemlerini kullanarak **uçtan uca bir otonom İHA yazılım sistemi geliştirmek ve bu sistemin her katmanını öğrenmek** amacıyla oluşturulmuş uygulamalı bir projedir.
+UAV Autonomy Lab; **PX4, Gazebo, MAVSDK, Python, C/C++ ve OpenCV** kullanılarak otonom görev, görüntü işleme ve uçuş kontrol sistemlerinin uçtan uca geliştirilmesini amaçlayan uygulamalı bir İHA yazılım projesidir.
 
-Bu projenin amacı yalnızca otonom uçuş gerçekleştiren bir İHA geliştirmek değildir. Aynı zamanda sensörden başlayarak görüntü işleme, karar verme, haberleşme ve uçuş kontrolüne kadar bütün yazılım zincirinin nasıl çalıştığını mühendislik seviyesinde anlamaktır.
+Bu proje iki temel amaçla geliştirilmektedir:
 
-Proje aşamalı olarak geliştirilecektir. Her yeni özellik önce öğrenilecek, ardından uygulanacak, simülasyonda test edilecek ve mevcut sisteme entegre edilecektir.
+1. Otonom İHA sistemlerinin sensörden uçuş kontrolüne kadar bütün yazılım zincirini uygulayarak öğrenmek.
+2. Öğrendiğim konuları yalnızca teorik bilgi olarak değil; **çalışan kod, simülasyon, test, hata analizi ve teknik dokümantasyon** ile gösterebileceğim bir mühendislik portföyü oluşturmak.
 
----
-
-# 🎯 Proje Hedefleri
-
-Bu proje kapsamında aşağıdaki yeteneklerin geliştirilmesi hedeflenmektedir:
-
-* PX4 tabanlı otonom uçuş
-* Gazebo üzerinde İHA simülasyonu
-* Companion Computer mimarisi
-* MAVLink / MAVSDK haberleşmesi
-* Gerçek zamanlı telemetri
-* Offboard uçuş kontrolü
-* Kamera tabanlı algılama
-* OpenCV ile hedef tespiti ve takibi
-* Görüntü tabanlı otonom uçuş
-* Ağ üzerinden telemetri ve veri haberleşmesi
-* Otonom görev yönetimi
-* Yapay zekâ tabanlı nesne tespiti
-* ROS2 entegrasyonu
-* Yer Kontrol İstasyonu (GCS) geliştirilmesi
-* Çoklu İHA ve sürü sistemleri
-* Jetson / Raspberry Pi gibi Companion Computer sistemlerine deployment
-
----
-
-# 🏗️ Sistem Mimarisi
-
-Projenin uzun vadeli hedef mimarisi:
+Proje hazır bir otonomi sistemi kullanmak yerine aşamalı olarak geliştirilmektedir:
 
 ```text
-                         KAMERA
-                            │
-                            ▼
-                    GÖRÜNTÜ İŞLEME
-                   OpenCV / AI / YOLO
-                            │
-                            ▼
-                       HEDEF TESPİTİ
-                            │
-                            ▼
-                       HEDEF KONUMU
-                            │
-                            ▼
-                       OTONOMİ SİSTEMİ
-                  Görev / State Machine
-                            │
-                            ▼
-                       HAREKET KONTROLÜ
-                            │
-                            ▼
-                      MAVSDK / MAVLink
-                            │
-                       UDP / NETWORK
-                            │
-                            ▼
-                           PX4
-                  ┌─────────┼─────────┐
-                  │         │         │
-                 EKF2   Controllers  uORB
-                  │         │
-                  └────┬────┘
-                       ▼
-                  Gazebo X500
-                       │
-                       ▼
-                 Sanal Sensörler
+Understand → Implement → Test → Debug → Validate → Document
 ```
-
-PX4, İHA'nın düşük seviyeli uçuş kontrolü ve stabilizasyonundan sorumludur.
-
-Companion Computer ise yüksek seviyeli görevlerden sorumludur:
-
-* Görüntü işleme
-* Hedef tespiti
-* Karar verme
-* Görev yönetimi
-* Networking
-* Yüksek seviyeli otonom hareket komutları
 
 ---
 
-# 🔄 Mevcut PX4 Veri Akışı
+# Güncel Proje Hedefi
 
-Simülasyon ortamında aşağıdaki veri akışı doğrulanmıştır:
+Projenin güncel ana senaryosu, gerçek bir İHA görevine benzer uçtan uca bir otonom görev zinciri oluşturmaktır.
+
+Hedef görev:
 
 ```text
-Gazebo Physics
-      │
-      ▼
-Sanal Sensörler
-IMU / GPS / Barometre / Manyetometre
-      │
-      ▼
-PX4 Gazebo Bridge
-      │
-      ▼
-PX4 Sensor Processing
-      │
-      ▼
-uORB
-sensor_combined
-      │
-      ▼
-EKF2
-Durum Tahmini
-      │
-      ▼
-uORB
-vehicle_local_position
-      │
-      ▼
-PX4 Flight Controllers
+Mission Start
+      |
+      v
+Autonomous Takeoff
+      |
+      v
+Waypoint Flight
+      |
+      v
+Industrial / Factory Area
+      |
+      v
+Autonomous Inspection Pattern
+(U / S / Search Pattern)
+      |
+      v
+Camera Search
+      |
+      v
+Vehicle Detection
+      |
+      v
+Target Tracking
+      |
+      v
+Vision-Guided Control
+      |
+      v
+Target Centering / Inspection
+      |
+      v
+Continue Mission
+      |
+      v
+Return To Launch
 ```
 
-Bu yapı daha ileri seviye otonom uçuş algoritmaları için temel oluşturmaktadır.
+İlk geliştirme ve doğrulama PX4 SITL + Gazebo üzerinde yapılmaktadır.
+
+Daha sonraki aşamalarda aynı görev mimarisinin **ArduPilot**, gerçek nesne tespiti, ROS2 ve Companion Computer donanımlarıyla genişletilmesi hedeflenmektedir.
 
 ---
 
-# ✅ Şu Ana Kadar Gerçekleştirilenler
+# Şu Anda Çalışan Sistem
 
-## 1. PX4 ve Gazebo Simülasyonu
+Projede şu ana kadar aşağıdaki temel yetenekler uygulanmış ve simülasyon ortamında test edilmiştir:
 
-* PX4 SITL kurulumu
-* Apple Silicon macOS üzerinde PX4 derleme
-* Gazebo Harmonic kurulumu
-* X500 İHA simülasyonu
-* PX4 ↔ Gazebo bağlantısı
-* Sanal sensör veri akışı
-* IMU verilerinin doğrulanması
-* Gyroscope ve accelerometer verilerinin uORB üzerinden incelenmesi
-* EKF2 local position tahmininin doğrulanması
-
----
-
-## 2. Companion Computer Altyapısı
-
-Aşağıdaki alanlar için modüler bir Companion Computer yapısı oluşturulmuştur:
-
-```text
-companion/
-
-├── autonomy/
-├── missions/
-├── telemetry/
-└── vision/
-```
-
-Python; görüntü işleme, telemetri ve yüksek seviyeli otonomi geliştirmelerinde kullanılacaktır.
-
-C++ ise ilerleyen aşamalarda PX4 modülleri, performans gerektiren işlemler ve daha düşük seviyeli sistem geliştirmelerinde kullanılacaktır.
-
----
-
-## 3. MAVSDK ve Uçuş Denemeleri
-
-MAVSDK kullanılarak ilk uçuş uygulamaları oluşturulmuştur.
-
-Mevcut çalışmalar:
-
-* PX4 bağlantısı
-* Arm / Disarm
-* Takeoff
-* Landing
-* Offboard Control
-* İleri hareket
-* Kare rota uçuşu
-
-Bu modüller otonomi sistemi geliştikçe genişletilecektir.
-
----
-
-## 4. Kamera Altyapısı
-
-Gazebo simülasyon ortamına kamera sistemi eklenmiştir.
-
-Simüle edilen kamera görüntülerinin Python tarafına aktarılması için gerekli altyapı oluşturulmuştur.
-
-Bu kamera sistemi ilerleyen aşamalarda:
-
-* OpenCV
-* Hedef tespiti
-* Hedef takibi
-* YOLO
-* Vision-Guided Flight
-
-çalışmalarının temelini oluşturacaktır.
-
----
-
-# 🔵 Şu Anki Geliştirme Aşaması
-
-## Phase 5 — Computer Vision Temelleri
-
-Şu anda projenin ana geliştirme konusu görüntü işlemedir.
-
-Öğrenilecek veri akışı:
-
-```text
-Kamera Görüntüsü
-       │
-       ▼
-NumPy Array
-       │
-       ▼
-Pixel
-       │
-       ▼
-BGR / HSV
-       │
-       ▼
-Color Mask
-       │
-       ▼
-Contour
-       │
-       ▼
-Bounding Box
-       │
-       ▼
-Hedef Merkezi
-       │
-       ▼
-Error X / Error Y
-```
-
-İlk hedefimiz yapay zekâ kullanmadan basit bir görsel hedefi güvenilir şekilde tespit edebilmektir.
-
----
-
-# 🗺️ Geliştirme ve Öğrenme Yol Haritası
-
-## Phase 1 — PX4 + Gazebo Simülasyonu ✅
-
-* PX4 SITL
-* Gazebo Harmonic
-* X500
-* Sanal sensörler
-* uORB
-* EKF2
-* Local Position
-
----
-
-## Phase 2 — MAVSDK ve Telemetri 🟡
-
+* PX4 SITL + Gazebo Harmonic simülasyonu
+* X500 multicopter
+* IMU, GPS, barometre ve magnetometer gibi sanal sensörler
+* EKF2 durum tahmini
 * MAVSDK bağlantısı
-* Position telemetry
-* Velocity telemetry
-* Altitude
-* Heading
-* Battery
-* Flight Mode
-* Connection monitoring
-* Async telemetry streams
+* Arm / Takeoff / Land
+* Offboard Control
+* Velocity setpoint kontrolü
+* İleri uçuş ve kare rota denemeleri
+* Gazebo kamera görüntüsünün Python'a aktarılması
+* OpenCV gerçek zamanlı görüntü işleme
+* HSV tabanlı renk tespiti
+* Contour ve bounding box hesaplama
+* Hedef merkezinin bulunması
+* Görüntü merkezi ile hedef arasındaki `error_x` hesabı
+* P Controller
+* `error_x → yaw_speed` dönüşümü
+* MAVSDK üzerinden PX4 yaw kontrolü
+* İlk **closed-loop vision-guided flight** denemesi
 
 ---
 
-## Phase 3 — Offboard Flight Control 🟡
+# Vision-Guided Flight
 
-* Arm / Disarm
-* Takeoff / Landing
-* Position setpoint
-* Velocity setpoint
-* İleri hareket
-* Kare rota
-* Offboard güvenliği
-* Komut doğrulama
+Projede ulaşılan önemli kilometre taşlarından biri kamera verisinin doğrudan uçuş kontrolüne bağlanmasıdır.
 
----
-
-## Phase 4 — Gazebo Kamera Pipeline 🟡
-
-* Simüle edilmiş İHA kamerası
-* Gazebo camera topics
-* Frame alma
-* Python entegrasyonu
-* OpenCV entegrasyonu
-* Gerçek zamanlı görüntü işleme
-
----
-
-## Phase 5 — Computer Vision Temelleri 🔵
-
-**Şu anda bulunduğumuz aşama.**
-
-Öğrenilecek konular:
-
-* NumPy görüntü yapısı
-* `frame.shape`
-* Pixel kavramı
-* Görüntü koordinat sistemi
-* BGR
-* RGB
-* HSV
-* Color Thresholding
-* Binary Mask
-* Contour
-* Bounding Box
-* Hedef merkezi hesaplama
-
----
-
-## Phase 6 — Hedef Tespiti ve Takibi
+Mevcut kontrol zinciri:
 
 ```text
-Kamera
-   │
-   ▼
-Hedef Tespiti
-   │
-   ▼
+Gazebo Camera
+      |
+      v
+OpenCV
+      |
+      v
+HSV Color Detection
+      |
+      v
+Contour
+      |
+      v
 Bounding Box
-   │
-   ▼
-Hedef Merkezi
-   │
-   ▼
-Error X / Error Y
-```
-
-Öğrenilecek konular:
-
-* Renk tabanlı hedef tespiti
-* Hedef konumunun bulunması
-* Görüntü merkezinin hesaplanması
-* Tracking Error
-* Hedef kaybolduğunda yapılacak işlemler
-* Basit Target Tracking
-
----
-
-## Phase 7 — Networking ve Gerçek Zamanlı Veri Haberleşmesi
-
-Networking ayrı bir teorik ders olarak değil, doğrudan İHA sistemleri üzerinde öğrenilecektir.
-
-### Temel konular
-
-* IP adresi
-* Port
-* localhost / `127.0.0.1`
-* Client / Server
-* TCP
-* UDP
-* Socket programlama
-* UDP Datagram
-* JSON
-* Serialization
-* Async Networking
-* Gerçek zamanlı veri aktarımı
-
-Örnek sistem:
-
-```text
-           İHA / SIMULATION
-
-           altitude
-           position
-           battery
-           heading
-           mission state
-                │
-                ▼
-           Serialization
-                │
-                ▼
-            UDP Socket
-                │
-                ▼
-              NETWORK
-                │
-                ▼
-       GROUND CONTROL STATION
-```
-
-Ayrıca MAVLink'in UDP üzerinden nasıl taşındığı incelenecektir.
-
----
-
-## Phase 8 — Vision-Guided Flight
-
-Görüntü işleme sistemi ile uçuş kontrol sistemi birleştirilecektir.
-
-```text
-Camera
-   │
-   ▼
-Target Detector
-   │
-   ▼
+      |
+      v
 Target Center
-   │
-   ▼
-Tracking Error
-   │
-   ▼
-Controller
-   │
-   ▼
-MAVSDK
-   │
-   ▼
-MAVLink
-   │
-   ▼
+      |
+      v
+error_x
+      |
+      v
+P Controller
+      |
+      v
+yaw_speed
+      |
+      v
+MAVSDK Offboard
+      |
+      v
 PX4
-   │
-   ▼
-İHA
+      |
+      v
+Vehicle Yaw
+      |
+      v
+New Camera Frame
+      |
+      +-------- Feedback --------+
 ```
 
-Öğrenilecek konular:
+Bu yapı **closed-loop control** mantığını gerçek bir simülasyon üzerinde uygulamak için oluşturuldu.
+
+Kontrol mantığı:
+
+```text
+error_x = target_x - image_center_x
+```
+
+Hedef görüntünün merkezinden uzaklaştıkça P Controller daha büyük yaw komutu üretir.
+
+Hedef merkeze yaklaştıkça komut küçülür.
+
+Belirlenen deadband içerisine girildiğinde:
+
+```text
+yaw_speed = 0
+```
+
+yapılarak gereksiz titreşim ve sürekli küçük düzeltmeler azaltılır.
+
+Bu aşamada yapay zekâ yerine bilinçli olarak klasik görüntü işleme kullanılmaktadır. Amaç önce **pixel → detection → error → controller → vehicle response** zincirini anlamaktır.
+
+---
+
+# Öğrenilen Mühendislik Konuları
+
+Bu proje yalnızca çalışan kod üretmek için değil, kullanılan sistemlerin altında ne olduğunu anlamak için geliştirilmektedir.
+
+## Flight & Autonomy
+
+* PX4 architecture
+* SITL
+* Offboard Control
+* MAVLink
+* MAVSDK
+* Vehicle telemetry
+* Coordinate systems
+* Velocity commands
+* Yaw / yaw rate
+* Autonomous mission logic
+
+## Computer Vision
+
+* NumPy image representation
+* Pixel coordinates
+* BGR / RGB / HSV
+* Color thresholding
+* Binary masks
+* Contours
+* Bounding boxes
+* Target center calculation
+* Tracking error
+* Real-time image processing
+
+## Control
 
 * Closed-loop control
+* Feedback
 * P Controller
-* Velocity commands
-* Yaw control
-* Target centering
-* Offboard control
-* Control-loop frequency
-* Hedef kaybolması
+* Controller gain (`Kp`)
+* Deadband
+* Command saturation
+* Error → actuator command ilişkisi
+
+## Python / Software Architecture
+
+* Python modules
+* Async programming
+* `asyncio`
+* Callbacks
+* Threads
+* Locks
+* Shared state
+* Modular project architecture
+
+## PX4 Internals
+
+* uORB
+* EKF2
+* Sensor processing
+* Local position estimation
+* Vehicle health
+* Preflight checks
+* Gazebo ↔ PX4 sensor pipeline
 
 ---
 
-## Phase 9 — Otonom Görev Mimarisi
-
-İHA'nın hangi durumda ne yapacağını belirleyen bir görev yönetim sistemi geliştirilecektir.
+# Sistem Mimarisi
 
 ```text
-INIT
- │
- ▼
-TAKEOFF
- │
- ▼
-MISSION
- │
- ▼
-SEARCH
- │
- ▼
-TARGET_DETECTED
- │
- ▼
-TARGET_TRACKING
- │
- ▼
-RTH
- │
- ▼
-LAND
+                     AUTONOMY / MISSION
+                            |
+                            v
+                        DECISION
+                            |
+             +--------------+--------------+
+             |                             |
+             v                             v
+         VISION                        TELEMETRY
+             |                             |
+             v                             |
+       Target Detection                    |
+             |                             |
+             v                             |
+       Tracking Error                      |
+             |                             |
+             +--------------+--------------+
+                            |
+                            v
+                     Motion Controller
+                            |
+                            v
+                      MAVSDK / MAVLink
+                            |
+                            v
+                           PX4
+                            |
+                 +----------+----------+
+                 |          |          |
+                 v          v          v
+                EKF2    Controllers   uORB
+                            |
+                            v
+                       Gazebo X500
+                            |
+                            v
+                         Sensors
+                            |
+                         Feedback
 ```
 
-Öğrenilecek konular:
+PX4 düşük seviyeli uçuş kontrolü, stabilizasyon ve durum tahmininden sorumludur.
 
-* State Machine
-* Mission Manager
-* Search
-* Target Tracking
-* Return To Home
-* Failsafe
-* Battery kontrolü
-* GPS kontrolü
-* EKF health
-* Communication loss
+Companion Computer tarafı ise:
+
+* görüntü işleme,
+* hedef tespiti,
+* görev yönetimi,
+* karar verme,
+* yüksek seviyeli hareket komutları
+
+gibi görevleri üstlenmektedir.
 
 ---
 
-## Phase 10 — Yapay Zekâ ve YOLO
+# Karşılaşılan Problemler ve Debugging
 
-Klasik görüntü işleme öğrenildikten sonra AI tabanlı hedef tespitine geçilecektir.
+Projede yalnızca başarılı sonuçlar değil, karşılaşılan teknik problemlerin kök nedenleri de incelenmektedir.
 
-Öğrenilecek konular:
+## Magnetometer / Heading Problemi
 
-* YOLO
-* Object Detection
-* Bounding Box
-* Confidence Score
-* IoU
-* Non-Maximum Suppression
-* Detection vs Tracking
-* Real-time inference
+Custom Gazebo world geliştirildikten sonra PX4:
 
 ```text
-Camera
-   │
-   ▼
-YOLO
-   │
-   ▼
-Detection
-   │
-   ▼
-Tracker
-   │
-   ▼
-Autonomy
+Strong magnetic interference
+no heading reference
 ```
 
----
+hataları verdi ve araç arm edilemedi.
 
-## Phase 11 — ROS2
+İncelemede EKF2'nin magnetometer verisine güvenmediği ve yaw alignment gerçekleştiremediği görüldü.
 
-Mevcut sistem daha sonra ROS2 mimarisine taşınacaktır.
+Sorunun custom world içerisinde Gazebo system plugin'lerinin manuel tanımlanması ile PX4'ün kendi `server.config` plugin yönetiminin çakışmasından kaynaklandığı tespit edildi.
 
-Öğrenilecek konular:
+Magnetometer için gerekli Gazebo Harmonic compatibility ayarları:
 
-* Node
-* Topic
-* Publisher
-* Subscriber
-* Message
-* Service
-* Launch files
+```xml
+<use_units_gauss>true</use_units_gauss>
+<use_earth_frame_ned>true</use_earth_frame_ned>
+```
 
-Örnek:
+uygulandı ve custom world içerisindeki gereksiz system plugin tanımları kaldırıldı.
+
+Sonuç:
 
 ```text
-camera_node
-     │
-     ▼
-/camera/image
-     │
-     ▼
-vision_node
-     │
-     ▼
-/target
-     │
-     ▼
-autonomy_node
-     │
-     ▼
-/control_command
-     │
-     ▼
-px4_interface_node
+Preflight check: OK
 ```
 
----
-
-## Phase 12 — Ground Control Station
-
-Kendi basit Yer Kontrol İstasyonumuz geliştirilecektir.
-
-Görüntülenecek bilgiler:
-
-* İHA konumu
-* Harita
-* İrtifa
-* Hız
-* Heading
-* Battery
-* Flight Mode
-* Mission State
-* Hedef bilgileri
-* Waypoint'ler
-* Bağlantı durumu
-
----
-
-## Phase 13 — Multi-UAV / Swarm
-
-Tek İHA mimarisi tamamlandıktan sonra sistem birden fazla İHA'ya genişletilecektir.
+Bu hata üzerinden:
 
 ```text
-               SWARM MANAGER
-
-              /      |      \
-             /       |       \
-          UAV-1    UAV-2    UAV-3
-            │        │        │
-           PX4      PX4      PX4
+Symptom
+   |
+   v
+Sensor Data
+   |
+   v
+EKF State
+   |
+   v
+Plugin Configuration
+   |
+   v
+Root Cause
 ```
 
-Öğrenilecek konular:
+şeklinde sistematik hata ayıklama yaklaşımı uygulandı.
 
-* Multiple PX4 SITL
-* Vehicle ID
-* Multi-UAV telemetry
-* Inter-UAV communication
-* Swarm Manager
-* Formation
-* Task Allocation
-* Cooperative Missions
+## Python / Gazebo Environment Problemi
+
+Companion uygulamasında:
+
+```text
+ModuleNotFoundError: No module named 'cv2'
+```
+
+ve daha sonra:
+
+```text
+ModuleNotFoundError: No module named 'gz'
+```
+
+hatalarıyla karşılaşıldı.
+
+Problemin farklı Python virtual environment'larının ve Homebrew Gazebo Python binding'lerinin farklı konumlarda bulunmasından kaynaklandığı tespit edildi.
+
+Companion uygulamaları için proje `.venv` ortamı kullanılmaya başlandı ve Gazebo Python binding path'leri environment üzerinden tanımlandı.
+
+Bu süreçte:
+
+* Virtual environment
+* Python interpreter
+* `PYTHONPATH`
+* Dynamic library path
+* Dependency isolation
+
+konuları pratik olarak incelendi.
+
+Daha ayrıntılı hata kayıtları:
+
+```text
+docs/troubleshooting.md
+```
+
+dosyasında tutulmaktadır.
 
 ---
 
-## Phase 14 — Edge Deployment
-
-Projenin son aşamalarında yazılım gerçek Companion Computer donanımlarına taşınacaktır.
-
-Hedef platformlar:
-
-* NVIDIA Jetson
-* Raspberry Pi
-* Linux tabanlı Companion Computer
-
-Öğrenilecek konular:
-
-* Linux deployment
-* CPU / GPU
-* Performance
-* Latency
-* Camera interface
-* ONNX
-* TensorRT
-* Real-time inference optimization
-
----
-
-# 📁 Repository Yapısı
-
-Mevcut proje yapısı:
+# Repository Yapısı
 
 ```text
 uav-autonomy-lab/
-│
+|
 ├── companion/
-│   │
-│   ├── autonomy/
-│   │   └── yüksek seviyeli otonomi ve hareket kontrolü
-│   │
-│   ├── missions/
-│   │   └── uçuş görevleri ve Offboard deneyleri
-│   │
-│   ├── telemetry/
-│   │   └── telemetri ve araç durum takibi
-│   │
-│   └── vision/
-│       └── kamera ve görüntü işleme
-│
-├── docs/
-│   └── architecture.md
-│
-├── scripts/
-│   ├── start_simulation.sh
-│   └── stop_simulation.sh
-│
+|   |
+|   ├── autonomy/
+|   |   └── motion_controller.py
+|   |
+|   ├── missions/
+|   |   ├── takeoff_land.py
+|   |   ├── offboard_forward.py
+|   |   ├── offboard_square.py
+|   |   └── vision_tracking.py
+|   |
+|   ├── telemetry/
+|   |   └── telemetry_monitor.py
+|   |
+|   └── vision/
+|       └── camera_viewer.py
+|
 ├── simulation/
-│   └── worlds/
-│
+|   └── worlds/
+|       └── vision_test.sdf
+|
+├── scripts/
+|   ├── start_simulation.sh
+|   └── stop_simulation.sh
+|
+├── docs/
+|   ├── architecture.md
+|   └── troubleshooting.md
+|
 ├── requirements.txt
 └── README.md
 ```
 
-Yeni klasörler yalnızca ilgili geliştirme aşamasına gerçekten geçildiğinde oluşturulacaktır.
-
-Böylece README'de varmış gibi görünen fakat gerçekte bulunmayan modüllerin oluşması engellenecektir.
-
 ---
 
-# ⚙️ Geliştirme Prensipleri
+# Development Roadmap
 
-## 1. Çalışan sistemi koru
+## Phase 1 — PX4 + Gazebo Simulation — Completed
 
-Teknik bir sebep olmadıkça çalışan kod yeniden yazılmayacaktır.
-
-## 2. Küçük adımlarla geliştir
-
-```text
-ANLA
- │
- ▼
-UYGULA
- │
- ▼
-TEST ET
- │
- ▼
-DOĞRULA
- │
- ▼
-COMMIT
- │
- ▼
-DOKÜMANTE ET
-```
-
-## 3. Sorumlulukları ayır
-
-Aşağıdaki sistemler birbirinden mantıksal olarak ayrılacaktır:
-
-* Perception
-* Autonomy
-* Missions
-* Telemetry
-* Networking
-* Flight Control
-
-## 4. Düşük seviyeli uçuş kontrolü PX4'ın görevidir
-
-Companion Computer doğrudan motor RPM hesaplamayacaktır.
-
-```text
-Autonomy
-   │
-   ▼
-Position / Velocity / Yaw Setpoint
-   │
-   ▼
-PX4
-   │
-   ▼
-Flight Controller
-   │
-   ▼
-Control Allocation
-   │
-   ▼
-Motors
-```
-
-## 5. Önce anla, sonra soyutla
-
-Yeni class, modül, klasör veya abstraction yalnızca neden gerekli olduğu anlaşıldığında eklenecektir.
-
----
-
-# 🧠 Öğrenme Hedefleri
-
-Bu repository aynı zamanda uygulamalı bir **Autonomous Systems Engineering Lab** olarak kullanılacaktır.
-
-## Programlama
-
-* Python
-* C++
-* Async Programming
-* Modular Software Design
-* Exception Handling
-* Real-time Programming Concepts
-
-## İHA Sistemleri
-
-* PX4
-* SITL
-* Gazebo
-* MAVLink
-* MAVSDK
-* uORB
+* PX4 SITL
+* Gazebo Harmonic
+* X500
+* Sensor pipeline
 * EKF2
-* Offboard Control
-* Telemetry
+* Local Position
 
-## Computer Vision
+## Phase 2 — MAVSDK & Telemetry — In Progress
 
-* NumPy
-* OpenCV
-* Image Processing
-* Target Detection
-* Target Tracking
-* Camera Coordinate Systems
+* MAVSDK connection
+* Position
+* Velocity
+* Altitude
+* Heading
+* Vehicle health
+* Async telemetry
 
-## Networking
+## Phase 3 — Offboard Flight Control — In Progress
 
-* TCP/IP
-* UDP
-* Socket
-* Serialization
-* Real-time Telemetry
-* Distributed Systems
+* Arm / Takeoff / Land
+* Velocity setpoints
+* Forward flight
+* Square mission
+* Yaw control
+* Offboard safety
 
-## Yapay Zekâ
+## Phase 4 — Gazebo Camera Pipeline — Completed
 
-* Object Detection
+* Simulated camera
+* Gazebo image topic
+* Python subscriber
+* OpenCV integration
+* Real-time frame processing
+
+## Phase 5 — Computer Vision Foundations — Completed
+
+* BGR / HSV
+* Color thresholding
+* Mask
+* Contour
+* Bounding box
+* Target center
+* Tracking error
+
+## Phase 6 — Target Tracking & Vision Control — Current
+
+Completed:
+
+* Red target detection
+* Target center calculation
+* Horizontal tracking error
+* P Controller
+* Error → yaw speed
+* MAVSDK Offboard integration
+* Initial closed-loop yaw test
+
+Next:
+
+* Target-loss behavior
+* Search behavior
+* Tracking stability
+* PD Controller
+
+## Phase 7 — Autonomous Mission
+
+Hedef:
+
+```text
+TAKEOFF
+   |
+   v
+WAYPOINT FLIGHT
+   |
+   v
+ARRIVE AT FACTORY
+   |
+   v
+SEARCH
+   |
+   v
+DETECT
+   |
+   v
+TRACK
+   |
+   v
+CONTINUE MISSION
+   |
+   v
+RTL
+```
+
+Bu aşamada yaklaşık 2 km'lik simüle edilmiş görev uçuşu ve görev bölgesine otonom erişim geliştirilecektir.
+
+## Phase 8 — Industrial Inspection Environment
+
+Gazebo üzerinde daha gerçekçi:
+
+* fabrika,
+* endüstriyel alan,
+* araçlar,
+* yapılar,
+* engeller
+
+içeren görev ortamı oluşturulacaktır.
+
+İHA bu ortam üzerinde U / S benzeri inspection pattern uygulayacaktır.
+
+## Phase 9 — Vehicle Detection
+
+Renk tabanlı test hedefi gerçek nesne tespitine dönüştürülecektir.
+
+Önce klasik Computer Vision yöntemleri değerlendirilecek, ardından gerektiğinde:
+
 * YOLO
-* Tracking
-* Model Deployment
+* Confidence score
+* IoU
+* NMS
+* Real-time inference
 
-## Robotik
+kullanılacaktır.
 
-* ROS2
-* Publisher / Subscriber
-* State Machine
-* Autonomous Mission Systems
+## Phase 10 — Mission State Machine
 
-## İleri Seviye İHA Sistemleri
+```text
+INIT
+ |
+ v
+TAKEOFF
+ |
+ v
+NAVIGATE
+ |
+ v
+SEARCH
+ |
+ v
+TARGET_DETECTED
+ |
+ v
+TRACK
+ |
+ v
+TARGET_CENTERED
+ |
+ v
+CONTINUE
+ |
+ v
+RTL
+ |
+ v
+LAND
+```
 
-* Ground Control Station
-* Multi-UAV
-* Swarm Coordination
-* Edge Computing
+Failsafe, target loss, communication loss ve vehicle health kontrolleri bu mimariye eklenecektir.
+
+## Phase 11 — ArduPilot
+
+PX4 üzerinde geliştirilen görev mimarisinin ArduPilot SITL üzerinde de uygulanması ve iki flight stack arasındaki farkların incelenmesi hedeflenmektedir.
+
+## Phase 12 — ROS2
+
+Sistem ilerleyen aşamada:
+
+```text
+camera_node
+     |
+     v
+vision_node
+     |
+     v
+autonomy_node
+     |
+     v
+control_node
+     |
+     v
+PX4 / ArduPilot
+```
+
+şeklinde ROS2 tabanlı bir mimariye genişletilecektir.
+
+## Phase 13 — Ground Control Station
+
+Telemetri, görev durumu, hedef bilgisi ve uçuş verilerini görüntüleyen basit bir Ground Control Station geliştirilecektir.
+
+## Phase 14 — Multi-UAV / Swarm
+
+Tek araç mimarisi tamamlandıktan sonra:
+
+* Multiple SITL vehicles
+* Vehicle ID
+* Multi-UAV telemetry
+* Task allocation
+* Formation
+* Cooperative missions
+
+konuları incelenecektir.
+
+## Phase 15 — Edge Deployment
+
+Son aşamalarda sistem:
+
+* NVIDIA Jetson
+* Raspberry Pi
+* Linux Companion Computer
+
+gibi gerçek donanımlara taşınacaktır.
 
 ---
 
-# 🧩 Projenin Temel Felsefesi
+# Development Approach
 
-Amaç yalnızca İHA'yı otonom olarak uçurmak değildir.
-
-Amaç aşağıdaki zincirin tamamını anlamaktır:
+Her özellik mümkün olduğunca aşağıdaki mühendislik döngüsüyle geliştirilmektedir:
 
 ```text
-SENSÖR
-   │
-   ▼
-VERİ
-   │
-   ▼
-DURUM TAHMİNİ
-   │
-   ▼
-ALGILAMA
-   │
-   ▼
-KARAR
-   │
-   ▼
-KONTROL KOMUTU
-   │
-   ▼
-HABERLEŞME
-   │
-   ▼
-PX4
-   │
-   ▼
-FLIGHT CONTROLLER
-   │
-   ▼
-İHA
+Understand
+    |
+    v
+Implement
+    |
+    v
+Simulate
+    |
+    v
+Test
+    |
+    v
+Observe
+    |
+    v
+Debug
+    |
+    v
+Validate
+    |
+    v
+Document
 ```
 
-Projede kullanılan her önemli sistem mümkün olduğunca:
-
-**öğrenilecek → uygulanacak → test edilecek → doğrulanacak → dokümante edilecektir.**
+Amaç yalnızca çalışan bir demo oluşturmak değil; **neden çalıştığını, hata verdiğinde sistemin hangi katmanında sorun olduğunu ve bileşenlerin birbirleriyle nasıl haberleştiğini anlayabilmektir.**
 
 ---
 
-# 🚀 Şu Anki Hedef
+# Long-Term Goal
 
-**Phase 5 — Computer Vision Temelleri**
-
-İlk hedef:
+Projenin uzun vadeli hedefi aşağıdaki uçtan uca sistemi gerçekleştirmektir:
 
 ```text
-Gazebo Kamera
-      │
-      ▼
-Python
-      │
-      ▼
-NumPy Frame
-      │
-      ▼
-OpenCV
-      │
-      ▼
-Pixel Yapısını Anla
-      │
-      ▼
-Hedefi Tespit Et
-      │
-      ▼
-Hedef Konumunu Hesapla
+Autonomous Takeoff
+        |
+        v
+Mission Navigation
+        |
+        v
+Industrial Area Search
+        |
+        v
+Vehicle Detection
+        |
+        v
+Target Tracking
+        |
+        v
+Vision-Guided Flight
+        |
+        v
+Mission Decision
+        |
+        v
+Return To Launch
 ```
 
-Bir sonraki kilometre taşı, Gazebo simülasyon ortamında bulunan görsel bir hedefin OpenCV kullanılarak güvenilir şekilde tespit edilmesidir.
+Bu proje geliştikçe yalnızca yeni özellikler eklenmeyecek; **mimari, testler, hata kayıtları ve teknik dokümantasyon da düzenli olarak güncellenecektir.**
