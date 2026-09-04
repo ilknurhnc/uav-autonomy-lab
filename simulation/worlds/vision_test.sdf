@@ -1,296 +1,503 @@
 <?xml version="1.0" ?>
+
 <sdf version="1.9">
   <world name="vision_test">
+
     <!-- ========================================= -->
     <!-- PHYSICS                                   -->
     <!-- ========================================= -->
-    <physics name="1ms" type="ignored">
-      <max_step_size>0.001</max_step_size>
+
+    <physics type="ode">
+      <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
     </physics>
+
     <!-- ========================================= -->
-    <!-- GAZEBO SYSTEM PLUGINS                     -->
+    <!-- WORLD ENVIRONMENT                         -->
     <!-- ========================================= -->
-    <plugin
-            filename="gz-sim-physics-system"
-            name="gz::sim::systems::Physics">
-    </plugin>
-    <plugin
-            filename="gz-sim-user-commands-system"
-            name="gz::sim::systems::UserCommands">
-    </plugin>
-    <plugin
-            filename="gz-sim-scene-broadcaster-system"
-            name="gz::sim::systems::SceneBroadcaster">
-    </plugin>
-    <!-- Contact / collision processing -->
-    <plugin
-            filename="gz-sim-contact-system"
-            name="gz::sim::systems::Contact">
-    </plugin>
-    <!-- IMU sensor support -->
-    <plugin
-            filename="gz-sim-imu-system"
-            name="gz::sim::systems::Imu">
-    </plugin>
-    <!-- Air pressure sensor -->
-    <plugin
-            filename="gz-sim-air-pressure-system"
-            name="gz::sim::systems::AirPressure">
-    </plugin>
-    <!-- Air speed sensor -->
-    <plugin
-            filename="gz-sim-air-speed-system"
-            name="gz::sim::systems::AirSpeed">
-    </plugin>
-    <!-- Magnetometer -->
-    <plugin
-            filename="gz-sim-magnetometer-system"
-            name="gz::sim::systems::Magnetometer">
-    </plugin>
-    <!-- GPS / NavSat -->
-    <plugin
-            filename="gz-sim-navsat-system"
-            name="gz::sim::systems::NavSat">
-    </plugin>
-    <!-- Allows forces to be applied to links -->
-    <plugin
-            filename="gz-sim-apply-link-wrench-system"
-            name="gz::sim::systems::ApplyLinkWrench">
-    </plugin>
-    <!-- Wind simulation -->
-    <plugin
-            filename="gz-sim-wind-effects-system"
-            name="gz::sim::systems::WindEffects">
-    </plugin>
-    <!-- CAMERA AND OTHER RENDERING SENSORS -->
-    <plugin
-            filename="gz-sim-sensors-system"
-            name="gz::sim::systems::Sensors">
-      <render_engine>ogre2</render_engine>
-    </plugin>
+
+    <gravity>0 0 -9.8</gravity>
+
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+
+    <atmosphere type="adiabatic"/>
+
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>47.397971057728974</latitude_deg>
+      <longitude_deg>8.546163739800146</longitude_deg>
+      <elevation>0</elevation>
+    </spherical_coordinates>
+
+    <!--
+      IMPORTANT
+
+      Gazebo system plugin'leri bu world dosyasına
+      manuel olarak eklenmiyor.
+
+      Physics
+      IMU
+      Magnetometer
+      NavSat
+      AirPressure
+      AirSpeed
+      Sensors
+      vb.
+
+      PX4:
+      src/modules/simulation/gz_bridge/server.config
+
+      dosyası üzerinden yükleniyor.
+
+      Magnetometer için server.config içinde:
+
+      <use_units_gauss>true</use_units_gauss>
+      <use_earth_frame_ned>true</use_earth_frame_ned>
+
+      ayarları kullanılmaktadır.
+    -->
+
     <!-- ========================================= -->
     <!-- SUN                                       -->
     <!-- ========================================= -->
+
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
+
       <pose>0 0 20 0 0 0</pose>
-      <diffuse>0.9 0.9 0.9 1</diffuse>
-      <specular>0.2 0.2 0.2 1</specular>
-      <direction>-0.5 0.1 -0.9</direction>
+
+      <diffuse>
+        0.9 0.9 0.9 1
+      </diffuse>
+
+      <specular>
+        0.2 0.2 0.2 1
+      </specular>
+
+      <direction>
+        -0.5 0.1 -0.9
+      </direction>
     </light>
+
     <!-- ========================================= -->
     <!-- GROUND                                    -->
     <!-- ========================================= -->
+
     <model name="ground_plane">
+
       <static>true</static>
+
       <link name="link">
-      <collision name="collision">
-        <geometry>
-          <plane>
-            <normal>0 0 1</normal>
-            <size>100 100</size>
-          </plane>
-        </geometry>
-      </collision>
-      <visual name="visual">
-        <geometry>
-          <plane>
-            <normal>0 0 1</normal>
-            <size>100 100</size>
-          </plane>
-        </geometry>
-        <material>
-          <diffuse>0.25 0.25 0.25 1</diffuse>
-        </material>
-      </visual>
-    </link>
-  </model>
-  <!-- ========================================= -->
-  <!-- RED TEST BOX                              -->
-  <!-- x = 10, y = 0                             -->
-  <!-- ========================================= -->
-  <model name="test_box">
-    <static>true</static>
-    <pose>10 0 1 0 0 0</pose>
-    <link name="link">
-    <collision name="collision">
-      <geometry>
-        <box>
-          <size>2 2 2</size>
-        </box>
-      </geometry>
-    </collision>
-    <visual name="visual">
-      <geometry>
-        <box>
-          <size>2 2 2</size>
-        </box>
-      </geometry>
-      <material>
-        <diffuse>0.8 0.2 0.2 1</diffuse>
-      </material>
-    </visual>
-  </link>
-</model>
-<!-- ========================================= -->
-<!-- BLUE OBSTACLE                             -->
-<!-- x = 20, y = +8                            -->
-<!-- ========================================= -->
-<model name="obstacle_left">
-  <static>true</static>
-  <pose>20 8 1.5 0 0 0</pose>
-  <link name="link">
-  <collision name="collision">
-    <geometry>
-      <box>
-        <size>3 3 3</size>
-      </box>
-    </geometry>
-  </collision>
-  <visual name="visual">
-    <geometry>
-      <box>
-        <size>3 3 3</size>
-      </box>
-    </geometry>
-    <material>
-      <diffuse>0.2 0.4 0.8 1</diffuse>
-    </material>
-  </visual>
-</link>
-</model>
-<!-- ========================================= -->
-<!-- GREEN OBSTACLE                            -->
-<!-- x = 20, y = -8                            -->
-<!-- ========================================= -->
-<model name="obstacle_right">
-  <static>true</static>
-  <pose>20 -8 1.5 0 0 0</pose>
-  <link name="link">
-  <collision name="collision">
-    <geometry>
-      <box>
-        <size>3 3 3</size>
-      </box>
-    </geometry>
-  </collision>
-  <visual name="visual">
-    <geometry>
-      <box>
-        <size>3 3 3</size>
-      </box>
-    </geometry>
-    <material>
-      <diffuse>0.2 0.8 0.3 1</diffuse>
-    </material>
-  </visual>
-</link>
-</model>
-<!-- ========================================= -->
-<!-- GATE LEFT POST                            -->
-<!-- ========================================= -->
-<model name="gate_left">
-  <static>true</static>
-  <pose>30 3 2.5 0 0 0</pose>
-  <link name="link">
-  <collision name="collision">
-    <geometry>
-      <box>
-        <size>0.5 0.5 5</size>
-      </box>
-    </geometry>
-  </collision>
-  <visual name="visual">
-    <geometry>
-      <box>
-        <size>0.5 0.5 5</size>
-      </box>
-    </geometry>
-    <material>
-      <diffuse>0.9 0.7 0.1 1</diffuse>
-    </material>
-  </visual>
-</link>
-</model>
-<!-- ========================================= -->
-<!-- GATE RIGHT POST                           -->
-<!-- ========================================= -->
-<model name="gate_right">
-  <static>true</static>
-  <pose>30 -3 2.5 0 0 0</pose>
-  <link name="link">
-  <collision name="collision">
-    <geometry>
-      <box>
-        <size>0.5 0.5 5</size>
-      </box>
-    </geometry>
-  </collision>
-  <visual name="visual">
-    <geometry>
-      <box>
-        <size>0.5 0.5 5</size>
-      </box>
-    </geometry>
-    <material>
-      <diffuse>0.9 0.7 0.1 1</diffuse>
-    </material>
-  </visual>
-</link>
-</model>
-<!-- ========================================= -->
-<!-- GATE TOP                                  -->
-<!-- ========================================= -->
-<model name="gate_top">
-  <static>true</static>
-  <pose>30 0 5 0 0 0</pose>
-  <link name="link">
-  <collision name="collision">
-    <geometry>
-      <box>
-        <size>0.5 6.5 0.5</size>
-      </box>
-    </geometry>
-  </collision>
-  <visual name="visual">
-    <geometry>
-      <box>
-        <size>0.5 6.5 0.5</size>
-      </box>
-    </geometry>
-    <material>
-      <diffuse>0.9 0.7 0.1 1</diffuse>
-    </material>
-  </visual>
-</link>
-</model>
-<!-- ========================================= -->
-<!-- BACK WALL                                 -->
-<!-- x = 40                                    -->
-<!-- ========================================= -->
-<model name="back_wall">
-  <static>true</static>
-  <pose>40 0 4 0 0 0</pose>
-  <link name="link">
-  <collision name="collision">
-    <geometry>
-      <box>
-        <size>0.5 30 8</size>
-      </box>
-    </geometry>
-  </collision>
-  <visual name="visual">
-    <geometry>
-      <box>
-        <size>0.5 30 8</size>
-      </box>
-    </geometry>
-    <material>
-      <diffuse>0.45 0.45 0.45 1</diffuse>
-    </material>
-  </visual>
-</link>
-</model>
-</world>
+
+        <collision name="collision">
+
+          <geometry>
+
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.25 0.25 0.25 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+    <!-- ========================================= -->
+    <!-- RED TEST TARGET                           -->
+    <!-- Position: x=10, y=0, z=1                 -->
+    <!-- ========================================= -->
+
+    <model name="test_box">
+
+      <static>true</static>
+
+      <pose>
+        10 0 1 0 0 0
+      </pose>
+
+      <link name="link">
+
+        <collision name="collision">
+
+          <geometry>
+
+            <box>
+              <size>2 2 2</size>
+            </box>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <box>
+              <size>2 2 2</size>
+            </box>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.8 0.2 0.2 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+    <!-- ========================================= -->
+    <!-- BLUE OBSTACLE                             -->
+    <!-- Position: x=20, y=8                      -->
+    <!-- ========================================= -->
+
+    <model name="obstacle_left">
+
+      <static>true</static>
+
+      <pose>
+        20 8 1.5 0 0 0
+      </pose>
+
+      <link name="link">
+
+        <collision name="collision">
+
+          <geometry>
+
+            <box>
+              <size>3 3 3</size>
+            </box>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <box>
+              <size>3 3 3</size>
+            </box>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.2 0.4 0.8 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+    <!-- ========================================= -->
+    <!-- GREEN OBSTACLE                            -->
+    <!-- Position: x=20, y=-8                     -->
+    <!-- ========================================= -->
+
+    <model name="obstacle_right">
+
+      <static>true</static>
+
+      <pose>
+        20 -8 1.5 0 0 0
+      </pose>
+
+      <link name="link">
+
+        <collision name="collision">
+
+          <geometry>
+
+            <box>
+              <size>3 3 3</size>
+            </box>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <box>
+              <size>3 3 3</size>
+            </box>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.2 0.8 0.3 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+    <!-- ========================================= -->
+    <!-- GATE LEFT POST                            -->
+    <!-- ========================================= -->
+
+    <model name="gate_left">
+
+      <static>true</static>
+
+      <pose>
+        30 3 2.5 0 0 0
+      </pose>
+
+      <link name="link">
+
+        <collision name="collision">
+
+          <geometry>
+
+            <box>
+              <size>0.5 0.5 5</size>
+            </box>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <box>
+              <size>0.5 0.5 5</size>
+            </box>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.9 0.7 0.1 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+    <!-- ========================================= -->
+    <!-- GATE RIGHT POST                           -->
+    <!-- ========================================= -->
+
+    <model name="gate_right">
+
+      <static>true</static>
+
+      <pose>
+        30 -3 2.5 0 0 0
+      </pose>
+
+      <link name="link">
+
+        <collision name="collision">
+
+          <geometry>
+
+            <box>
+              <size>0.5 0.5 5</size>
+            </box>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <box>
+              <size>0.5 0.5 5</size>
+            </box>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.9 0.7 0.1 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+    <!-- ========================================= -->
+    <!-- GATE TOP                                  -->
+    <!-- ========================================= -->
+
+    <model name="gate_top">
+
+      <static>true</static>
+
+      <pose>
+        30 0 5 0 0 0
+      </pose>
+
+      <link name="link">
+
+        <collision name="collision">
+
+          <geometry>
+
+            <box>
+              <size>0.5 6.5 0.5</size>
+            </box>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <box>
+              <size>0.5 6.5 0.5</size>
+            </box>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.9 0.7 0.1 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+    <!-- ========================================= -->
+    <!-- BACK WALL                                 -->
+    <!-- Position: x=40                           -->
+    <!-- ========================================= -->
+
+    <model name="back_wall">
+
+      <static>true</static>
+
+      <pose>
+        40 0 4 0 0 0
+      </pose>
+
+      <link name="link">
+
+        <collision name="collision">
+
+          <geometry>
+
+            <box>
+              <size>0.5 30 8</size>
+            </box>
+
+          </geometry>
+
+        </collision>
+
+
+        <visual name="visual">
+
+          <geometry>
+
+            <box>
+              <size>0.5 30 8</size>
+            </box>
+
+          </geometry>
+
+          <material>
+
+            <diffuse>
+              0.45 0.45 0.45 1
+            </diffuse>
+
+          </material>
+
+        </visual>
+
+      </link>
+
+    </model>
+
+
+  </world>
 </sdf>
