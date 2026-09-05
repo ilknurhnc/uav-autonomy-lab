@@ -10,6 +10,11 @@ LIDAR_TOPIC = (
 )
 
 
+DISTANCE_JUMP_THRESHOLD = 1.0
+INDEX_GAP_THRESHOLD = 2
+MIN_CLUSTER_POINTS = 3
+
+
 def lidar_callback(msg: LaserScan):
     ranges = list(msg.ranges)
 
@@ -32,49 +37,97 @@ def lidar_callback(msg: LaserScan):
         angle = msg.angle_min + i * msg.angle_step
 
         valid_points.append(
-            (
-                distance,
-                angle
-            )
+            {
+                "distance": distance,
+                "angle": angle,
+                "index": i,
+            }
         )
 
     if not valid_points:
         print("No obstacle detected.")
         return
 
-    closest_distance = min(
-        point[0]
-        for point in valid_points
-    )
+    clusters = []
+    current_cluster = [valid_points[0]]
 
-    DISTANCE_TOLERANCE = 0.5
+    for point in valid_points[1:]:
 
-    obstacle_points = [
-        point
-        for point in valid_points
-        if point[0] <= closest_distance + DISTANCE_TOLERANCE
-    ]
+        previous_point = current_cluster[-1]
 
-    average_distance = sum(
-        point[0]
-        for point in obstacle_points
-    ) / len(obstacle_points)
+        distance_difference = abs(
+            point["distance"]
+            - previous_point["distance"]
+        )
 
-    average_angle = sum(
-        point[1]
-        for point in obstacle_points
-    ) / len(obstacle_points)
+        index_difference = (
+            point["index"]
+            - previous_point["index"]
+        )
 
-    average_angle_deg = math.degrees(
-        average_angle
-    )
+        same_cluster = (
+            distance_difference <= DISTANCE_JUMP_THRESHOLD
+            and
+            index_difference <= INDEX_GAP_THRESHOLD
+        )
 
+        if same_cluster:
+            current_cluster.append(point)
+
+        else:
+
+            if len(current_cluster) >= MIN_CLUSTER_POINTS:
+                clusters.append(current_cluster)
+
+            current_cluster = [point]
+
+    if len(current_cluster) >= MIN_CLUSTER_POINTS:
+        clusters.append(current_cluster)
+
+    if not clusters:
+        print("No obstacle clusters detected.")
+        return
+
+    print()
     print(
-        f"Obstacle center: "
-        f"{average_distance:.2f} m | "
-        f"Angle: {average_angle_deg:.1f} deg | "
-        f"Points: {len(obstacle_points)}"
+        f"Detected clusters: {len(clusters)}"
     )
+
+    for cluster_index, cluster in enumerate(
+        clusters,
+        start=1
+    ):
+
+        average_distance = sum(
+            point["distance"]
+            for point in cluster
+        ) / len(cluster)
+
+        average_angle = sum(
+            point["angle"]
+            for point in cluster
+        ) / len(cluster)
+
+        average_angle_deg = math.degrees(
+            average_angle
+        )
+
+        min_angle_deg = math.degrees(
+            cluster[0]["angle"]
+        )
+
+        max_angle_deg = math.degrees(
+            cluster[-1]["angle"]
+        )
+
+        print(
+            f"Cluster {cluster_index}: "
+            f"Distance={average_distance:.2f} m | "
+            f"Center Angle={average_angle_deg:.1f} deg | "
+            f"Angular Width="
+            f"{min_angle_deg:.1f}..{max_angle_deg:.1f} deg | "
+            f"Points={len(cluster)}"
+        )
 
 
 def main():
