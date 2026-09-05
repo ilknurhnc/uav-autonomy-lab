@@ -238,18 +238,27 @@ async def run():
             target, mask = detect_red_target(frame)
 
             yaw_speed = 0.0
+            forward_speed = 0.0
+            right_speed = 0.0
 
             if target is None:
                 state = SEARCH
-                yaw_speed = 10.0
+                forward_speed = 0.5
+                right_speed = 0.5
+                yaw_speed = 8.0
 
                 print(
                     f"State: {state} | "
                     f"Target not visible | "
-                    f"Yaw speed: {yaw_speed:.1f} deg/s"
+                    f"Forward: {forward_speed:.1f} m/s | "
+                    f"Right: {right_speed:.1f} m/s | "
+                    f"Yaw: {yaw_speed:.1f} deg/s"
                 )
 
             else:
+                forward_speed = 0.0
+                right_speed = 0.0
+                
                 error_x = target["error_x"]
 
                 control_command = calculate_control_command(
@@ -309,8 +318,8 @@ async def run():
 
             await drone.offboard.set_velocity_body(
                 VelocityBodyYawspeed(
-                    0.0,
-                    0.0,
+                    forward_speed,
+                    right_speed,
                     0.0,
                     yaw_speed
                 )

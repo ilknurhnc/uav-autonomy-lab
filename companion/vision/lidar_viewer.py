@@ -16,9 +16,10 @@ def lidar_callback(msg: LaserScan):
     if not ranges:
         return
 
-    valid_ranges = []
+    valid_points = []
 
     for i, distance in enumerate(ranges):
+
         if math.isinf(distance):
             continue
 
@@ -30,30 +31,49 @@ def lidar_callback(msg: LaserScan):
 
         angle = msg.angle_min + i * msg.angle_step
 
-        valid_ranges.append(
+        valid_points.append(
             (
                 distance,
                 angle
             )
         )
 
-    if not valid_ranges:
+    if not valid_points:
         print("No obstacle detected.")
         return
 
-    closest_distance, closest_angle = min(
-        valid_ranges,
-        key=lambda item: item[0]
+    closest_distance = min(
+        point[0]
+        for point in valid_points
     )
 
-    closest_angle_deg = math.degrees(
-        closest_angle
+    DISTANCE_TOLERANCE = 0.5
+
+    obstacle_points = [
+        point
+        for point in valid_points
+        if point[0] <= closest_distance + DISTANCE_TOLERANCE
+    ]
+
+    average_distance = sum(
+        point[0]
+        for point in obstacle_points
+    ) / len(obstacle_points)
+
+    average_angle = sum(
+        point[1]
+        for point in obstacle_points
+    ) / len(obstacle_points)
+
+    average_angle_deg = math.degrees(
+        average_angle
     )
 
     print(
-        f"Closest obstacle: "
-        f"{closest_distance:.2f} m | "
-        f"Angle: {closest_angle_deg:.1f} deg"
+        f"Obstacle center: "
+        f"{average_distance:.2f} m | "
+        f"Angle: {average_angle_deg:.1f} deg | "
+        f"Points: {len(obstacle_points)}"
     )
 
 
