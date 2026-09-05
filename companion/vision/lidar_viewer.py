@@ -60,10 +60,7 @@ def lidar_callback(msg: LaserScan):
             - previous_point["distance"]
         )
 
-        index_difference = (
-            point["index"]
-            - previous_point["index"]
-        )
+        index_difference = point["index"] - previous_point["index"]
 
         same_cluster = (
             distance_difference <= DISTANCE_JUMP_THRESHOLD

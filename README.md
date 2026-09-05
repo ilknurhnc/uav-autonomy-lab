@@ -1,6 +1,6 @@
 # UAV Autonomy Lab — Autonomous UAV Software & Vision-Guided Flight
 
-UAV Autonomy Lab; **PX4, Gazebo, MAVSDK, Python, C/C++ ve OpenCV** kullanılarak otonom görev, görüntü işleme ve uçuş kontrol sistemlerinin uçtan uca geliştirilmesini amaçlayan uygulamalı bir İHA yazılım projesidir.
+UAV Autonomy Lab; **PX4, Gazebo, MAVSDK, Python, C/C++, OpenCV ve LiDAR** kullanılarak otonom görev, görüntü işleme, çevre algılama ve uçuş kontrol sistemlerinin uçtan uca geliştirilmesini amaçlayan uygulamalı bir İHA yazılım projesidir.
 
 Bu proje iki temel amaçla geliştirilmektedir:
 
@@ -19,8 +19,6 @@ Understand → Implement → Test → Debug → Validate → Document
 
 Projenin güncel ana senaryosu, gerçek bir İHA görevine benzer uçtan uca bir otonom görev zinciri oluşturmaktır.
 
-Hedef görev:
-
 ```text
 Mission Start
       |
@@ -34,14 +32,17 @@ Waypoint Flight
 Industrial / Factory Area
       |
       v
-Autonomous Inspection Pattern
-(U / S / Search Pattern)
+Environment Perception
+(Camera + LiDAR)
       |
       v
-Camera Search
+Obstacle Detection / Clustering
       |
       v
-Vehicle Detection
+Autonomous Inspection / Search
+      |
+      v
+Target Detection
       |
       v
 Target Tracking
@@ -59,7 +60,9 @@ Continue Mission
 Return To Launch
 ```
 
-İlk geliştirme ve doğrulama PX4 SITL + Gazebo üzerinde yapılmaktadır.
+İlk geliştirme ve doğrulama **PX4 SITL + Gazebo** üzerinde yapılmaktadır.
+
+Güncel kısa vadeli hedef, kırmızı test hedefinin doğrudan görünür olmadığı bir sahnede LiDAR ile çevredeki engelleri ayrı objeler olarak algılayıp bu bilgiyi daha sonra otonom arama davranışına bağlamaktır.
 
 Daha sonraki aşamalarda aynı görev mimarisinin **ArduPilot**, gerçek nesne tespiti, ROS2 ve Companion Computer donanımlarıyla genişletilmesi hedeflenmektedir.
 
@@ -80,22 +83,30 @@ Projede şu ana kadar aşağıdaki temel yetenekler uygulanmış ve simülasyon 
 * İleri uçuş ve kare rota denemeleri
 * Gazebo kamera görüntüsünün Python'a aktarılması
 * OpenCV gerçek zamanlı görüntü işleme
-* HSV tabanlı renk tespiti
+* HSV tabanlı kırmızı hedef tespiti
 * Contour ve bounding box hesaplama
 * Hedef merkezinin bulunması
 * Görüntü merkezi ile hedef arasındaki `error_x` hesabı
 * P Controller
 * `error_x → yaw_speed` dönüşümü
 * MAVSDK üzerinden PX4 yaw kontrolü
-* İlk **closed-loop vision-guided flight** denemesi
+* `SEARCH → TRACK → CENTERED` hedef takip davranışı
+* Kamera görüş alanı dışındaki hedefi yaw taramasıyla bulma ve merkezleme
+* Gazebo 2D LiDAR verisinin Python'a aktarılması
+* `LaserScan` mesajlarının işlenmesi
+* Geçersiz LiDAR ölçümlerinin (`inf`, `nan`, `<= 0`) filtrelenmesi
+* Her LiDAR noktası için mesafe, açı ve scan index bilgisinin çıkarılması
+* Ardışık LiDAR noktalarının spatial cluster'lara ayrılması
+* Aynı mesafeye yakın fakat farklı açılardaki engellerin ayrı objeler olarak tutulması
+* Cluster başına ortalama mesafe, merkez açısı, açısal genişlik ve nokta sayısı hesabı
+* İlk **closed-loop vision-guided flight**
+* İlk **LiDAR obstacle clustering** testi
 
 ---
 
 # Vision-Guided Flight
 
 Projede ulaşılan önemli kilometre taşlarından biri kamera verisinin doğrudan uçuş kontrolüne bağlanmasıdır.
-
-Mevcut kontrol zinciri:
 
 ```text
 Gazebo Camera
@@ -139,8 +150,6 @@ New Camera Frame
       +-------- Feedback --------+
 ```
 
-Bu yapı **closed-loop control** mantığını gerçek bir simülasyon üzerinde uygulamak için oluşturuldu.
-
 Kontrol mantığı:
 
 ```text
@@ -159,13 +168,379 @@ yaw_speed = 0
 
 yapılarak gereksiz titreşim ve sürekli küçük düzeltmeler azaltılır.
 
-Bu aşamada yapay zekâ yerine bilinçli olarak klasik görüntü işleme kullanılmaktadır. Amaç önce **pixel → detection → error → controller → vehicle response** zincirini anlamaktır.
+Hedef kamera görüş alanında değilken sistem `SEARCH` durumunda çevreyi tarar. Hedef algılandığında `TRACK` durumuna geçer. Hedef deadband içerisine girdiğinde `CENTERED` durumu oluşur.
+
+```text
+SEARCH
+   |
+   | target detected
+   v
+TRACK
+   |
+   | abs(error_x) < deadband
+   v
+CENTERED
+```
+
+Bu davranış Gazebo simülasyonunda hedef başlangıç görüş alanının dışına taşınarak test edilmiş ve drone'un hedefi bulup merkezlemesi doğrulanmıştır.
+
+Bu aşamada yapay zekâ yerine bilinçli olarak klasik görüntü işleme kullanılmaktadır. Amaç önce:
+
+```text
+pixel
+  ↓
+detection
+  ↓
+error
+  ↓
+controller
+  ↓
+vehicle response
+```
+
+zincirini anlamaktır.
+
+---
+
+# LiDAR Obstacle Detection & Clustering
+
+Projeye çevre algılama yeteneği kazandırmak amacıyla Gazebo üzerinde **2D LiDAR pipeline** geliştirilmeye başlandı.
+
+LiDAR verisi şu zincir üzerinden işlenmektedir:
+
+```text
+Gazebo 2D LiDAR
+      |
+      v
+LaserScan Message
+      |
+      v
+Raw Ranges
+      |
+      v
+Invalid Measurement Filtering
+(inf / nan / <= 0)
+      |
+      v
+Valid LiDAR Points
+(distance + angle + index)
+      |
+      v
+Scan Segmentation
+      |
+      v
+Spatial Clusters
+      |
+      v
+Obstacle Information
+(distance / center angle / angular width)
+```
+
+## LiDAR Nokta Temsili
+
+Her geçerli LiDAR ölçümü Python tarafında bir dictionary ile temsil edilmektedir:
+
+```python
+{
+    "distance": distance,
+    "angle": angle,
+    "index": i,
+}
+```
+
+Burada:
+
+* `distance` → LiDAR noktasının sensöre olan mesafesi
+* `angle` → noktanın LiDAR taramasındaki açısı
+* `index` → noktanın `LaserScan` içerisindeki sıra numarası
+
+LiDAR ışınının açısı:
+
+```text
+angle = angle_min + index * angle_step
+```
+
+şeklinde hesaplanmaktadır.
+
+Kullanılan veri yapısı:
+
+```text
+Dictionary
+    |
+    +--> Tek LiDAR noktası
+         distance + angle + index
+
+
+List of dictionaries
+    |
+    +--> Tek obje / tek cluster
+         Aynı engele ait LiDAR noktaları
+
+
+List of lists
+    |
+    +--> Bütün cluster'lar
+         Sahnede algılanan bütün engel grupları
+```
+
+Kod tarafındaki isimler:
+
+```text
+point
+→ tek LiDAR noktası
+
+current_cluster
+→ şu anda oluşturulmakta olan tek obje / cluster
+
+clusters
+→ tamamlanmış bütün obje / cluster listesi
+```
+
+## Clustering Mantığı
+
+Ham LiDAR verisinde yalnızca en yakın mesafeyi seçmek yeterli değildir.
+
+Aynı objenin farklı kenarlarında çok küçük ölçüm farklılıkları oluşabildiği gibi, birbirinden farklı iki obje yaklaşık aynı mesafede de bulunabilir.
+
+Bu nedenle ardışık LiDAR noktaları şu iki kriterle karşılaştırılmaktadır:
+
+```python
+distance_difference <= DISTANCE_JUMP_THRESHOLD
+and
+index_difference <= INDEX_GAP_THRESHOLD
+```
+
+Kullanılan başlangıç parametreleri:
+
+```python
+DISTANCE_JUMP_THRESHOLD = 1.0
+INDEX_GAP_THRESHOLD = 2
+MIN_CLUSTER_POINTS = 3
+```
+
+Anlamları:
+
+`DISTANCE_JUMP_THRESHOLD`
+
+Ardışık iki LiDAR noktasının mesafeleri arasındaki izin verilen maksimum farktır.
+
+`INDEX_GAP_THRESHOLD`
+
+LiDAR taramasındaki iki nokta arasındaki izin verilen maksimum scan index boşluğudur.
+
+`MIN_CLUSTER_POINTS`
+
+Bir nokta grubunun gerçek bir obstacle cluster olarak kabul edilmesi için gereken minimum LiDAR noktası sayısıdır.
+
+Algoritmanın temel mantığı:
+
+```text
+Yeni LiDAR noktası
+        |
+        v
+Önceki cluster'ın son noktası
+        |
+        v
+Mesafe farkını hesapla
+        |
+        v
+Index farkını hesapla
+        |
+        v
+Mesafe yakın mı?
+VE
+Index yakın mı?
+     /        \
+   EVET       HAYIR
+    |           |
+    v           v
+Aynı cluster   Önceki cluster'ı kapat
+append(point)  Yeni cluster başlat
+```
+
+Bu yöntem sayesinde birbirine yakın mesafede bulunan fakat LiDAR scan üzerinde farklı bölgelerde bulunan engeller ayrı cluster'lar olarak tutulabilmektedir.
+
+## Doğrulanan Test Sonucu
+
+Gazebo test sahnesinde aynı LiDAR taramasında dört ayrı cluster kararlı şekilde algılandı.
+
+Örnek çıktı:
+
+```text
+Detected clusters: 4
+
+Cluster 1:
+Distance=20.23 m
+Center Angle=-22.1 deg
+Angular Width=-27.2..-17.1 deg
+Points=41
+
+Cluster 2:
+Distance=29.78 m
+Center Angle=-5.8 deg
+Angular Width=-6.1..-5.4 deg
+Points=4
+
+Cluster 3:
+Distance=29.78 m
+Center Angle=5.8 deg
+Angular Width=5.4..6.1 deg
+Points=4
+
+Cluster 4:
+Distance=20.23 m
+Center Angle=22.1 deg
+Angular Width=17.1..27.2 deg
+Points=41
+```
+
+Bu testte özellikle yaklaşık aynı mesafedeki iki farklı engelin tek obje olarak birleştirilmemesi sağlandı.
+
+Bu, yalnızca:
+
+```text
+minimum distance
+```
+
+kullanmak yerine:
+
+```text
+distance continuity
++
+scan index continuity
+```
+
+kullanılmasının avantajını gösterdi.
+
+---
+
+# LiDAR Veri Yapısının Python Tarafı
+
+Bu özellik geliştirilirken Python tarafında aşağıdaki veri yapıları uygulandı.
+
+## Dictionary
+
+Tek bir LiDAR noktasını tutar.
+
+```python
+{
+    "distance": 20.2,
+    "angle": -0.38,
+    "index": 102
+}
+```
+
+## List of Dictionaries
+
+Aynı objeye ait LiDAR noktalarını tutar.
+
+```python
+current_cluster = [
+    {"distance": 20.1, "angle": -0.40, "index": 100},
+    {"distance": 20.2, "angle": -0.39, "index": 101},
+    {"distance": 20.3, "angle": -0.38, "index": 102},
+]
+```
+
+## List of Lists
+
+Algılanan bütün objeleri / cluster'ları tutar.
+
+```python
+clusters = [
+    cluster_1,
+    cluster_2,
+    cluster_3,
+]
+```
+
+Yapının tamamı:
+
+```text
+clusters
+|
+├── Cluster 1
+|   ├── point
+|   |   ├── distance
+|   |   ├── angle
+|   |   └── index
+|   |
+|   └── point
+|
+├── Cluster 2
+|   ├── point
+|   └── point
+|
+└── Cluster 3
+    ├── point
+    └── point
+```
+
+Bu yapı ilerleyen aşamada yalnızca terminal çıktısı üretmek yerine görev karar sistemine obstacle verisi sağlayacaktır.
+
+---
+
+# LiDAR Sonraki Hedef
+
+Bir sonraki amaç LiDAR'ın yalnızca:
+
+```text
+"Burada 4 obje var."
+```
+
+demesi değildir.
+
+Amaç bu bilgiyi drone'un karar mekanizmasına bağlamaktır.
+
+```text
+Target Not Visible
+      |
+      v
+LiDAR Scan
+      |
+      v
+Detect Separate Obstacles
+      |
+      v
+Determine Obstacle Position
+      |
+      v
+Generate Inspection Viewpoint
+      |
+      v
+Move Around Obstacle
+      |
+      v
+Camera Search
+      |
+      v
+Target Detected?
+   /        \
+ NO         YES
+ |           |
+ v           v
+Next       TRACK
+Obstacle     |
+             v
+          CENTERED
+```
+
+Böylece drone, hedefin hangi objenin arkasında olduğunu önceden bilmeden çevresini sistematik olarak araştırabilecektir.
+
+Mevcut clustering yöntemi bilinçli olarak basit bir **1D LaserScan segmentation** yaklaşımıdır.
+
+İlerleyen aşamada gerekirse LiDAR noktaları:
+
+```text
+x = r * cos(theta)
+y = r * sin(theta)
+```
+
+ile Kartezyen koordinatlara dönüştürülecek ve daha geometrik clustering yöntemleri değerlendirilecektir.
 
 ---
 
 # Öğrenilen Mühendislik Konuları
-
-Bu proje yalnızca çalışan kod üretmek için değil, kullanılan sistemlerin altında ne olduğunu anlamak için geliştirilmektedir.
 
 ## Flight & Autonomy
 
@@ -179,6 +554,7 @@ Bu proje yalnızca çalışan kod üretmek için değil, kullanılan sistemlerin
 * Velocity commands
 * Yaw / yaw rate
 * Autonomous mission logic
+* SEARCH / TRACK / CENTERED state logic
 
 ## Computer Vision
 
@@ -193,6 +569,25 @@ Bu proje yalnızca çalışan kod üretmek için değil, kullanılan sistemlerin
 * Tracking error
 * Real-time image processing
 
+## LiDAR / Environment Perception
+
+* Gazebo `LaserScan` messages
+* LiDAR range measurements
+* `angle_min`
+* `angle_step`
+* Scan indexing
+* `inf` / `nan` filtering
+* Polar sensor measurements
+* LiDAR point representation
+* Sequential scan processing
+* Distance continuity
+* Index continuity
+* Spatial clustering
+* Cluster size filtering
+* Average obstacle distance
+* Obstacle center angle
+* Angular width estimation
+
 ## Control
 
 * Closed-loop control
@@ -206,11 +601,27 @@ Bu proje yalnızca çalışan kod üretmek için değil, kullanılan sistemlerin
 ## Python / Software Architecture
 
 * Python modules
-* Async programming
-* `asyncio`
+* Lists
+* Dictionaries
+* Nested data structures
+* `.append()`
+* List slicing: `[1:]`
+* Positive indexing: `[0]`
+* Negative indexing: `[-1]`
+* `enumerate()`
+* `len()`
+* `sum()`
+* Generator expressions
+* `abs()`
+* `math.isinf()`
+* `math.isnan()`
+* `math.degrees()`
+* `if / else`
+* `continue`
 * Callbacks
 * Threads
 * Locks
+* `asyncio`
 * Shared state
 * Modular project architecture
 
@@ -229,55 +640,64 @@ Bu proje yalnızca çalışan kod üretmek için değil, kullanılan sistemlerin
 # Sistem Mimarisi
 
 ```text
-                     AUTONOMY / MISSION
-                            |
-                            v
-                        DECISION
-                            |
-             +--------------+--------------+
-             |                             |
-             v                             v
-         VISION                        TELEMETRY
-             |                             |
-             v                             |
-       Target Detection                    |
-             |                             |
-             v                             |
-       Tracking Error                      |
-             |                             |
-             +--------------+--------------+
-                            |
-                            v
-                     Motion Controller
-                            |
-                            v
-                      MAVSDK / MAVLink
-                            |
-                            v
-                           PX4
-                            |
-                 +----------+----------+
-                 |          |          |
-                 v          v          v
-                EKF2    Controllers   uORB
-                            |
-                            v
-                       Gazebo X500
-                            |
-                            v
-                         Sensors
-                            |
-                         Feedback
+                         AUTONOMY / MISSION
+                                |
+                                v
+                            DECISION
+                                |
+               +----------------+----------------+
+               |                                 |
+               v                                 v
+            VISION                            LIDAR
+               |                                 |
+               v                                 v
+       Target Detection                  LaserScan Processing
+               |                                 |
+               v                                 v
+       Tracking Error                    Obstacle Clusters
+               |                                 |
+               +----------------+----------------+
+                                |
+                                v
+                         Mission / Search Logic
+                                |
+                                v
+                         Motion Controller
+                                |
+                                v
+                          MAVSDK / MAVLink
+                                |
+                                v
+                               PX4
+                                |
+                     +----------+----------+
+                     |          |          |
+                     v          v          v
+                    EKF2    Controllers   uORB
+                                |
+                                v
+                           Gazebo X500
+                                |
+                       +--------+--------+
+                       |                 |
+                       v                 v
+                    Camera            LiDAR
+                       |                 |
+                       +--------+--------+
+                                |
+                             Feedback
 ```
 
 PX4 düşük seviyeli uçuş kontrolü, stabilizasyon ve durum tahmininden sorumludur.
 
 Companion Computer tarafı ise:
 
-* görüntü işleme,
-* hedef tespiti,
-* görev yönetimi,
-* karar verme,
+* görüntü işleme
+* LiDAR verisi işleme
+* obstacle clustering
+* hedef tespiti
+* görev yönetimi
+* karar verme
 * yüksek seviyeli hareket komutları
 
 gibi görevleri üstlenmektedir.
@@ -285,8 +705,6 @@ gibi görevleri üstlenmektedir.
 ---
 
 # Karşılaşılan Problemler ve Debugging
-
-Projede yalnızca başarılı sonuçlar değil, karşılaşılan teknik problemlerin kök nedenleri de incelenmektedir.
 
 ## Magnetometer / Heading Problemi
 
@@ -303,7 +721,7 @@ hataları verdi ve araç arm edilemedi.
 
 Sorunun custom world içerisinde Gazebo system plugin'lerinin manuel tanımlanması ile PX4'ün kendi `server.config` plugin yönetiminin çakışmasından kaynaklandığı tespit edildi.
 
-Magnetometer için gerekli Gazebo Harmonic compatibility ayarları:
+Gerekli Gazebo Harmonic compatibility ayarları:
 
 ```xml
 <use_units_gauss>true</use_units_gauss>
@@ -346,7 +764,7 @@ Companion uygulamasında:
 ModuleNotFoundError: No module named 'cv2'
 ```
 
-ve daha sonra:
+ve:
 
 ```text
 ModuleNotFoundError: No module named 'gz'
@@ -355,8 +773,6 @@ ModuleNotFoundError: No module named 'gz'
 hatalarıyla karşılaşıldı.
 
 Problemin farklı Python virtual environment'larının ve Homebrew Gazebo Python binding'lerinin farklı konumlarda bulunmasından kaynaklandığı tespit edildi.
-
-Companion uygulamaları için proje `.venv` ortamı kullanılmaya başlandı ve Gazebo Python binding path'leri environment üzerinden tanımlandı.
 
 Bu süreçte:
 
@@ -398,7 +814,8 @@ uav-autonomy-lab/
 |   |   └── telemetry_monitor.py
 |   |
 |   └── vision/
-|       └── camera_viewer.py
+|       ├── camera_viewer.py
+|       └── lidar_viewer.py
 |
 ├── simulation/
 |   └── worlds/
@@ -466,7 +883,7 @@ uav-autonomy-lab/
 * Target center
 * Tracking error
 
-## Phase 6 — Target Tracking & Vision Control — Current
+## Phase 6 — Target Tracking & Vision Control — Completed
 
 Completed:
 
@@ -476,18 +893,46 @@ Completed:
 * P Controller
 * Error → yaw speed
 * MAVSDK Offboard integration
-* Initial closed-loop yaw test
+* Closed-loop yaw tracking
+* `SEARCH → TRACK → CENTERED` state logic
+* Target outside initial camera view test
+
+Further improvements:
+
+* Tracking stability
+* PD Controller
+* More robust target-loss handling
+
+## Phase 7 — LiDAR Obstacle Perception — Current
+
+Completed:
+
+* Gazebo 2D LiDAR integration
+* `LaserScan` subscriber
+* Raw range processing
+* `inf` / `nan` filtering
+* Angle calculation from scan index
+* LiDAR point dictionaries
+* Sequential scan segmentation
+* Distance continuity checks
+* Index continuity checks
+* Minimum cluster point filtering
+* Multiple obstacle clustering
+* Average distance calculation
+* Center angle calculation
+* Angular width calculation
+* Same-distance separate obstacle validation
 
 Next:
 
-* Target-loss behavior
-* Search behavior
-* Tracking stability
-* PD Controller
+* Return obstacle information to mission logic instead of only printing
+* Vehicle pose / heading integration
+* Convert LiDAR observations into local/world coordinates
+* Generate safe inspection viewpoints
+* Inspect different sides of detected obstacles
+* Integrate LiDAR search with camera target detection
 
-## Phase 7 — Autonomous Mission
-
-Hedef:
+## Phase 8 — Autonomous Mission
 
 ```text
 TAKEOFF
@@ -502,7 +947,13 @@ ARRIVE AT FACTORY
 SEARCH
    |
    v
-DETECT
+LIDAR PERCEPTION
+   |
+   v
+INSPECT OBSTACLES
+   |
+   v
+DETECT TARGET
    |
    v
 TRACK
@@ -516,25 +967,25 @@ RTL
 
 Bu aşamada yaklaşık 2 km'lik simüle edilmiş görev uçuşu ve görev bölgesine otonom erişim geliştirilecektir.
 
-## Phase 8 — Industrial Inspection Environment
+## Phase 9 — Industrial Inspection Environment
 
 Gazebo üzerinde daha gerçekçi:
 
-* fabrika,
-* endüstriyel alan,
-* araçlar,
-* yapılar,
+* fabrika
+* endüstriyel alan
+* araçlar
+* yapılar
 * engeller
 
 içeren görev ortamı oluşturulacaktır.
 
 İHA bu ortam üzerinde U / S benzeri inspection pattern uygulayacaktır.
 
-## Phase 9 — Vehicle Detection
+## Phase 10 — Vehicle Detection
 
 Renk tabanlı test hedefi gerçek nesne tespitine dönüştürülecektir.
 
-Önce klasik Computer Vision yöntemleri değerlendirilecek, ardından gerektiğinde:
+Gerektiğinde:
 
 * YOLO
 * Confidence score
@@ -542,9 +993,9 @@ Renk tabanlı test hedefi gerçek nesne tespitine dönüştürülecektir.
 * NMS
 * Real-time inference
 
-kullanılacaktır.
+konuları uygulanacaktır.
 
-## Phase 10 — Mission State Machine
+## Phase 11 — Mission State Machine
 
 ```text
 INIT
@@ -557,6 +1008,12 @@ NAVIGATE
  |
  v
 SEARCH
+ |
+ v
+PERCEIVE
+ |
+ v
+INSPECT
  |
  v
 TARGET_DETECTED
@@ -579,19 +1036,22 @@ LAND
 
 Failsafe, target loss, communication loss ve vehicle health kontrolleri bu mimariye eklenecektir.
 
-## Phase 11 — ArduPilot
+## Phase 12 — ArduPilot
 
 PX4 üzerinde geliştirilen görev mimarisinin ArduPilot SITL üzerinde de uygulanması ve iki flight stack arasındaki farkların incelenmesi hedeflenmektedir.
 
-## Phase 12 — ROS2
-
-Sistem ilerleyen aşamada:
+## Phase 13 — ROS2
 
 ```text
 camera_node
      |
      v
 vision_node
+
+lidar_node
+     |
+     v
+perception_node
      |
      v
 autonomy_node
@@ -605,11 +1065,11 @@ PX4 / ArduPilot
 
 şeklinde ROS2 tabanlı bir mimariye genişletilecektir.
 
-## Phase 13 — Ground Control Station
+## Phase 14 — Ground Control Station
 
 Telemetri, görev durumu, hedef bilgisi ve uçuş verilerini görüntüleyen basit bir Ground Control Station geliştirilecektir.
 
-## Phase 14 — Multi-UAV / Swarm
+## Phase 15 — Multi-UAV / Swarm
 
 Tek araç mimarisi tamamlandıktan sonra:
 
@@ -622,7 +1082,7 @@ Tek araç mimarisi tamamlandıktan sonra:
 
 konuları incelenecektir.
 
-## Phase 15 — Edge Deployment
+## Phase 16 — Edge Deployment
 
 Son aşamalarda sistem:
 
@@ -669,8 +1129,6 @@ Amaç yalnızca çalışan bir demo oluşturmak değil; **neden çalıştığın
 
 # Long-Term Goal
 
-Projenin uzun vadeli hedefi aşağıdaki uçtan uca sistemi gerçekleştirmektir:
-
 ```text
 Autonomous Takeoff
         |
@@ -678,10 +1136,17 @@ Autonomous Takeoff
 Mission Navigation
         |
         v
-Industrial Area Search
+Industrial Area Perception
+(Camera + LiDAR)
         |
         v
-Vehicle Detection
+Obstacle-Aware Search
+        |
+        v
+Dynamic Inspection Viewpoints
+        |
+        v
+Vehicle / Target Detection
         |
         v
 Target Tracking
