@@ -26,6 +26,10 @@ CAMERA_TOPIC = (
 
 TAKEOFF_ALTITUDE = 2.5
 
+SEARCH = "SEARCH"
+TRACK = "TRACK"
+CENTERED = "CENTERED"
+
 latest_frame = None
 frame_lock = threading.Lock()
 
@@ -130,10 +134,6 @@ def detect_red_target(frame):
 async def run():
     global latest_frame
 
-    # -----------------------------------------
-    # GAZEBO CAMERA
-    # -----------------------------------------
-
     node = Node()
 
     print("Connecting to Gazebo camera...")
@@ -150,10 +150,6 @@ async def run():
 
     print("Camera connected!")
 
-    # -----------------------------------------
-    # PX4 / MAVSDK
-    # -----------------------------------------
-
     drone = System()
 
     print("Connecting to PX4...")
@@ -163,7 +159,6 @@ async def run():
     )
 
     async for state in drone.core.connection_state():
-
         if state.is_connected:
             print("Connected to PX4!")
             break
@@ -171,7 +166,6 @@ async def run():
     print("Waiting for vehicle...")
 
     async for health in drone.telemetry.health():
-
         print(
             f"Local: {health.is_local_position_ok} | "
             f"Global: {health.is_global_position_ok} | "
@@ -187,10 +181,6 @@ async def run():
             print("Vehicle ready!")
             break
 
-    # -----------------------------------------
-    # TAKEOFF
-    # -----------------------------------------
-
     await drone.action.set_takeoff_altitude(
         TAKEOFF_ALTITUDE
     )
@@ -202,19 +192,11 @@ async def run():
     await drone.action.takeoff()
 
     async for position in drone.telemetry.position():
-
         altitude = position.relative_altitude_m
-
-        print(
-            f"Altitude: {altitude:.2f} m"
-        )
+        print(f"Altitude: {altitude:.2f} m")
 
         if altitude >= TAKEOFF_ALTITUDE * 0.90:
             break
-
-    # -----------------------------------------
-    # PREPARE OFFBOARD
-    # -----------------------------------------
 
     print("Preparing Offboard...")
 
@@ -228,65 +210,61 @@ async def run():
     )
 
     try:
-
         await drone.offboard.start()
-
         print("Offboard started!")
-
     except OffboardError as error:
-
-        print(
-            f"Offboard failed: {error}"
-        )
-
+        print(f"Offboard failed: {error}")
         await drone.action.land()
-
         return
 
     print("Vision tracking active.")
     print("Press Q in camera window to stop.")
 
-    # -----------------------------------------
-    # VISION → YAW CONTROL LOOP
-    # -----------------------------------------
+    state = SEARCH
 
     try:
-
         while True:
 
             with frame_lock:
-
                 if latest_frame is not None:
                     frame = latest_frame.copy()
-
                 else:
                     frame = None
 
             if frame is None:
-
                 await asyncio.sleep(0.05)
-
                 continue
 
             target, mask = detect_red_target(frame)
 
             yaw_speed = 0.0
 
-            if target is not None:
+            if target is None:
+                state = SEARCH
+                yaw_speed = 10.0
 
+                print(
+                    f"State: {state} | "
+                    f"Target not visible | "
+                    f"Yaw speed: {yaw_speed:.1f} deg/s"
+                )
+
+            else:
                 error_x = target["error_x"]
 
-                control_command = (
-                    calculate_control_command(
-                        error_x
-                    )
+                control_command = calculate_control_command(
+                    error_x
                 )
 
-                yaw_speed = (
-                    control_to_yaw_speed(
-                        control_command
-                    )
+                yaw_speed = control_to_yaw_speed(
+                    control_command
                 )
+
+                if abs(error_x) < 20:
+                    state = CENTERED
+                    yaw_speed = 0.0
+                else:
+                    state = TRACK
 
                 x = target["x"]
                 y = target["y"]
@@ -324,19 +302,10 @@ async def run():
                 )
 
                 print(
+                    f"State: {state} | "
                     f"Error X: {error_x:4d} | "
                     f"Yaw speed: {yaw_speed:6.2f} deg/s"
                 )
-
-            else:
-
-                print(
-                    "Target not visible -> yaw 0"
-                )
-
-            # ---------------------------------
-            # SEND YAW COMMAND TO PX4
-            # ---------------------------------
 
             await drone.offboard.set_velocity_body(
                 VelocityBodyYawspeed(
@@ -365,7 +334,6 @@ async def run():
             await asyncio.sleep(0.05)
 
     finally:
-
         print("Stopping vehicle motion...")
 
         await drone.offboard.set_velocity_body(
@@ -380,17 +348,11 @@ async def run():
         await asyncio.sleep(0.5)
 
         try:
-
             await drone.offboard.stop()
-
         except OffboardError as error:
-
-            print(
-                f"Offboard stop failed: {error}"
-            )
+            print(f"Offboard stop failed: {error}")
 
         print("Landing...")
-
         await drone.action.land()
 
         cv2.destroyAllWindows()
