@@ -106,6 +106,16 @@ def extract_obstacles(msg: LaserScan):
             average_angle
         )
 
+        x_sensor = (
+            average_distance
+            * math.cos(average_angle)
+        )
+
+        y_sensor = (
+            average_distance
+            * math.sin(average_angle)
+        )
+
         min_angle_deg = math.degrees(
             cluster[0]["angle"]
         )
@@ -118,6 +128,8 @@ def extract_obstacles(msg: LaserScan):
             "distance": average_distance,
             "angle": average_angle,
             "angle_deg": average_angle_deg,
+            "x_sensor": x_sensor,
+            "y_sensor": y_sensor,
             "min_angle_deg": min_angle_deg,
             "max_angle_deg": max_angle_deg,
             "points": len(cluster),
@@ -150,6 +162,8 @@ def lidar_callback(msg: LaserScan):
             f"Obstacle {obstacle_index}: "
             f"Distance={obstacle['distance']:.2f} m | "
             f"Center Angle={obstacle['angle_deg']:.1f} deg | "
+            f"X={obstacle['x_sensor']:.2f} m | "
+            f"Y={obstacle['y_sensor']:.2f} m | "
             f"Angular Width="
             f"{obstacle['min_angle_deg']:.1f}.."
             f"{obstacle['max_angle_deg']:.1f} deg | "
