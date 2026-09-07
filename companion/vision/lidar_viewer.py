@@ -36,7 +36,10 @@ def extract_obstacles(msg: LaserScan):
         if distance <= 0.0:
             continue
 
-        angle = msg.angle_min + i * msg.angle_step
+        angle = (
+            msg.angle_min
+            + i * msg.angle_step
+        )
 
         valid_points.append(
             {
@@ -57,7 +60,9 @@ def extract_obstacles(msg: LaserScan):
 
     for point in valid_points[1:]:
 
-        previous_point = current_cluster[-1]
+        previous_point = (
+            current_cluster[-1]
+        )
 
         distance_difference = abs(
             point["distance"]
@@ -70,23 +75,42 @@ def extract_obstacles(msg: LaserScan):
         )
 
         same_cluster = (
-            distance_difference <= DISTANCE_JUMP_THRESHOLD
+            distance_difference
+            <= DISTANCE_JUMP_THRESHOLD
             and
-            index_difference <= INDEX_GAP_THRESHOLD
+            index_difference
+            <= INDEX_GAP_THRESHOLD
         )
 
         if same_cluster:
-            current_cluster.append(point)
+
+            current_cluster.append(
+                point
+            )
 
         else:
 
-            if len(current_cluster) >= MIN_CLUSTER_POINTS:
-                clusters.append(current_cluster)
+            if (
+                len(current_cluster)
+                >= MIN_CLUSTER_POINTS
+            ):
 
-            current_cluster = [point]
+                clusters.append(
+                    current_cluster
+                )
 
-    if len(current_cluster) >= MIN_CLUSTER_POINTS:
-        clusters.append(current_cluster)
+            current_cluster = [
+                point
+            ]
+
+    if (
+        len(current_cluster)
+        >= MIN_CLUSTER_POINTS
+    ):
+
+        clusters.append(
+            current_cluster
+        )
 
     obstacles = []
 
@@ -102,72 +126,120 @@ def extract_obstacles(msg: LaserScan):
             for point in cluster
         ) / len(cluster)
 
-        average_angle_deg = math.degrees(
-            average_angle
+        average_angle_deg = (
+            math.degrees(
+                average_angle
+            )
         )
 
         x_sensor = (
             average_distance
-            * math.cos(average_angle)
+            * math.cos(
+                average_angle
+            )
         )
 
         y_sensor = (
             average_distance
-            * math.sin(average_angle)
+            * math.sin(
+                average_angle
+            )
         )
 
-        min_angle_deg = math.degrees(
-            cluster[0]["angle"]
+        min_angle_deg = (
+            math.degrees(
+                cluster[0]["angle"]
+            )
         )
 
-        max_angle_deg = math.degrees(
-            cluster[-1]["angle"]
+        max_angle_deg = (
+            math.degrees(
+                cluster[-1]["angle"]
+            )
         )
 
         obstacle = {
-            "distance": average_distance,
-            "angle": average_angle,
-            "angle_deg": average_angle_deg,
-            "x_sensor": x_sensor,
-            "y_sensor": y_sensor,
-            "min_angle_deg": min_angle_deg,
-            "max_angle_deg": max_angle_deg,
-            "points": len(cluster),
+            "distance":
+                average_distance,
+
+            "angle":
+                average_angle,
+
+            "angle_deg":
+                average_angle_deg,
+
+            "x_sensor":
+                x_sensor,
+
+            "y_sensor":
+                y_sensor,
+
+            "min_angle_deg":
+                min_angle_deg,
+
+            "max_angle_deg":
+                max_angle_deg,
+
+            "points":
+                len(cluster),
         }
 
-        obstacles.append(obstacle)
+        obstacles.append(
+            obstacle
+        )
 
     return obstacles
 
 
 def lidar_callback(msg: LaserScan):
 
-    obstacles = extract_obstacles(msg)
+    obstacles = (
+        extract_obstacles(msg)
+    )
 
     if not obstacles:
-        print("No obstacle clusters detected.")
+
+        print(
+            "No obstacle clusters detected."
+        )
+
         return
 
     print()
+    print("=" * 75)
+
     print(
-        f"Detected obstacles: {len(obstacles)}"
+        f"Detected clusters: "
+        f"{len(obstacles)}"
     )
 
-    for obstacle_index, obstacle in enumerate(
+    print("=" * 75)
+
+    for (
+        obstacle_index,
+        obstacle
+    ) in enumerate(
         obstacles,
         start=1
     ):
 
         print(
-            f"Obstacle {obstacle_index}: "
-            f"Distance={obstacle['distance']:.2f} m | "
-            f"Center Angle={obstacle['angle_deg']:.1f} deg | "
-            f"X={obstacle['x_sensor']:.2f} m | "
-            f"Y={obstacle['y_sensor']:.2f} m | "
-            f"Angular Width="
-            f"{obstacle['min_angle_deg']:.1f}.."
+            f"Cluster "
+            f"{obstacle_index}: "
+            f"Distance="
+            f"{obstacle['distance']:.2f} m | "
+            f"Angle="
+            f"{obstacle['angle_deg']:.1f} deg | "
+            f"X="
+            f"{obstacle['x_sensor']:.2f} m | "
+            f"Y="
+            f"{obstacle['y_sensor']:.2f} m | "
+            f"Width="
+            f"{obstacle['min_angle_deg']:.1f}"
+            f".."
             f"{obstacle['max_angle_deg']:.1f} deg | "
-            f"Points={obstacle['points']}"
+            f"Points="
+            f"{obstacle['points']}"
         )
 
 
@@ -175,7 +247,9 @@ def main():
 
     node = Node()
 
-    print("Connecting to LiDAR...")
+    print(
+        "Connecting to LiDAR..."
+    )
 
     success = node.subscribe(
         LaserScan,
@@ -184,19 +258,37 @@ def main():
     )
 
     if not success:
-        print("Failed to subscribe to LiDAR.")
+
+        print(
+            "Failed to subscribe "
+            "to LiDAR."
+        )
+
         return
 
-    print("LiDAR connected!")
-    print("Press Ctrl+C to stop.")
+    print(
+        "LiDAR connected!"
+    )
+
+    print(
+        "Press Ctrl+C to stop."
+    )
 
     try:
+
         while True:
-            time.sleep(0.1)
+
+            time.sleep(
+                0.1
+            )
 
     except KeyboardInterrupt:
-        print("\nStopping LiDAR viewer.")
+
+        print(
+            "\nStopping LiDAR viewer."
+        )
 
 
 if __name__ == "__main__":
+
     main()

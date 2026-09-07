@@ -1,4 +1,6 @@
 import asyncio
+import math
+import threading
 
 from mavsdk import System
 from mavsdk.offboard import (
@@ -6,16 +8,82 @@ from mavsdk.offboard import (
     PositionNedYaw,
 )
 
+from gz.transport13 import Node
+from gz.msgs10.laserscan_pb2 import LaserScan
+
+from companion.vision.lidar_viewer import (
+    LIDAR_TOPIC,
+    extract_obstacles,
+)
+
+from companion.autonomy.coordinate_transform import (
+    sensor_to_local_ned,
+)
+
 
 TAKEOFF_ALTITUDE = 2.5
-
-TARGET_NORTH = 3.0
-TARGET_EAST = 0.0
-
+SAFE_DISTANCE = 5.0
 POSITION_TOLERANCE = 0.5
 
 
+latest_obstacles = []
+obstacle_lock = threading.Lock()
+
+
+def lidar_callback(msg: LaserScan):
+
+    global latest_obstacles
+
+    obstacles = extract_obstacles(msg)
+
+    with obstacle_lock:
+        latest_obstacles = obstacles
+
+
+def get_latest_obstacles():
+
+    with obstacle_lock:
+        return latest_obstacles.copy()
+
+
+async def get_local_pose(drone):
+
+    async for position_velocity in (
+        drone.telemetry.position_velocity_ned()
+    ):
+
+        north = position_velocity.position.north_m
+        east = position_velocity.position.east_m
+
+        break
+
+    async for attitude in (
+        drone.telemetry.attitude_euler()
+    ):
+
+        yaw = attitude.yaw_deg
+        break
+
+    return north, east, yaw
+
+
 async def run():
+
+    node = Node()
+
+    print("Connecting to LiDAR...")
+
+    success = node.subscribe(
+        LaserScan,
+        LIDAR_TOPIC,
+        lidar_callback,
+    )
+
+    if not success:
+        print("Failed to subscribe to LiDAR.")
+        return
+
+    print("LiDAR connected!")
 
     drone = System()
 
@@ -64,34 +132,110 @@ async def run():
             print("Takeoff altitude reached!")
             break
 
-    print("Reading current local position...")
+    await asyncio.sleep(1)
 
-    async for position_velocity in (
-        drone.telemetry.position_velocity_ned()
-    ):
+    print("Reading drone pose...")
 
-        start_north = (
-            position_velocity.position.north_m
+    drone_north, drone_east, yaw_deg = (
+        await get_local_pose(drone)
+    )
+
+    print(
+        f"Drone: "
+        f"North={drone_north:.2f} | "
+        f"East={drone_east:.2f} | "
+        f"Yaw={yaw_deg:.1f}"
+    )
+
+    obstacles = get_latest_obstacles()
+
+    if not obstacles:
+
+        print("No LiDAR obstacle detected.")
+        await drone.action.land()
+        return
+
+    print(
+        f"Detected obstacles: {len(obstacles)}"
+    )
+
+    selected_obstacle = min(
+        obstacles,
+        key=lambda obstacle: obstacle["distance"],
+    )
+
+    print(
+        f"Selected obstacle: "
+        f"Distance={selected_obstacle['distance']:.2f} m | "
+        f"Angle={selected_obstacle['angle_deg']:.1f} deg"
+    )
+
+    obstacle_local = sensor_to_local_ned(
+        x_sensor=selected_obstacle["x_sensor"],
+        y_sensor=selected_obstacle["y_sensor"],
+        drone_north=drone_north,
+        drone_east=drone_east,
+        yaw_deg=yaw_deg,
+    )
+
+    obstacle_north = obstacle_local["north_m"]
+    obstacle_east = obstacle_local["east_m"]
+
+    print(
+        f"Obstacle local position: "
+        f"North={obstacle_north:.2f} | "
+        f"East={obstacle_east:.2f}"
+    )
+
+    north_offset = (
+        obstacle_north - drone_north
+    )
+
+    east_offset = (
+        obstacle_east - drone_east
+    )
+
+    obstacle_distance = math.sqrt(
+        north_offset ** 2
+        + east_offset ** 2
+    )
+
+    if obstacle_distance <= SAFE_DISTANCE:
+
+        print(
+            "Obstacle is already too close. "
+            "Mission aborted."
         )
 
-        start_east = (
-            position_velocity.position.east_m
-        )
+        await drone.action.land()
+        return
 
-        break
+    travel_distance = (
+        obstacle_distance - SAFE_DISTANCE
+    )
+
+    north_direction = (
+        north_offset / obstacle_distance
+    )
+
+    east_direction = (
+        east_offset / obstacle_distance
+    )
 
     target_north = (
-        start_north + TARGET_NORTH
+        drone_north
+        + north_direction * travel_distance
     )
 
     target_east = (
-        start_east + TARGET_EAST
+        drone_east
+        + east_direction * travel_distance
     )
 
     target_down = -TAKEOFF_ALTITUDE
 
     print(
-        f"Target: "
+        f"Inspection target: "
         f"North={target_north:.2f} | "
         f"East={target_east:.2f}"
     )
@@ -100,10 +244,10 @@ async def run():
 
     await drone.offboard.set_position_ned(
         PositionNedYaw(
-            start_north,
-            start_east,
+            drone_north,
+            drone_east,
             target_down,
-            0.0,
+            yaw_deg,
         )
     )
 
@@ -120,17 +264,16 @@ async def run():
         )
 
         await drone.action.land()
-
         return
 
-    print("Flying to target...")
+    print("Flying toward obstacle...")
 
     await drone.offboard.set_position_ned(
         PositionNedYaw(
             target_north,
             target_east,
             target_down,
-            0.0,
+            yaw_deg,
         )
     )
 
@@ -161,10 +304,10 @@ async def run():
             abs(east_error) < POSITION_TOLERANCE
         ):
 
-            print("Target position reached!")
+            print("Inspection position reached!")
             break
 
-    print("Hovering...")
+    print("Hovering near obstacle...")
 
     await asyncio.sleep(3)
 
