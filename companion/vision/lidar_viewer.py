@@ -1,4 +1,5 @@
 import math
+import time
 
 from gz.transport13 import Node
 from gz.msgs10.laserscan_pb2 import LaserScan
@@ -15,11 +16,12 @@ INDEX_GAP_THRESHOLD = 2
 MIN_CLUSTER_POINTS = 3
 
 
-def lidar_callback(msg: LaserScan):
+def extract_obstacles(msg: LaserScan):
+
     ranges = list(msg.ranges)
 
     if not ranges:
-        return
+        return []
 
     valid_points = []
 
@@ -45,11 +47,13 @@ def lidar_callback(msg: LaserScan):
         )
 
     if not valid_points:
-        print("No obstacle detected.")
-        return
+        return []
 
     clusters = []
-    current_cluster = [valid_points[0]]
+
+    current_cluster = [
+        valid_points[0]
+    ]
 
     for point in valid_points[1:]:
 
@@ -60,7 +64,10 @@ def lidar_callback(msg: LaserScan):
             - previous_point["distance"]
         )
 
-        index_difference = point["index"] - previous_point["index"]
+        index_difference = (
+            point["index"]
+            - previous_point["index"]
+        )
 
         same_cluster = (
             distance_difference <= DISTANCE_JUMP_THRESHOLD
@@ -81,19 +88,9 @@ def lidar_callback(msg: LaserScan):
     if len(current_cluster) >= MIN_CLUSTER_POINTS:
         clusters.append(current_cluster)
 
-    if not clusters:
-        print("No obstacle clusters detected.")
-        return
+    obstacles = []
 
-    print()
-    print(
-        f"Detected clusters: {len(clusters)}"
-    )
-
-    for cluster_index, cluster in enumerate(
-        clusters,
-        start=1
-    ):
+    for cluster in clusters:
 
         average_distance = sum(
             point["distance"]
@@ -117,17 +114,51 @@ def lidar_callback(msg: LaserScan):
             cluster[-1]["angle"]
         )
 
+        obstacle = {
+            "distance": average_distance,
+            "angle": average_angle,
+            "angle_deg": average_angle_deg,
+            "min_angle_deg": min_angle_deg,
+            "max_angle_deg": max_angle_deg,
+            "points": len(cluster),
+        }
+
+        obstacles.append(obstacle)
+
+    return obstacles
+
+
+def lidar_callback(msg: LaserScan):
+
+    obstacles = extract_obstacles(msg)
+
+    if not obstacles:
+        print("No obstacle clusters detected.")
+        return
+
+    print()
+    print(
+        f"Detected obstacles: {len(obstacles)}"
+    )
+
+    for obstacle_index, obstacle in enumerate(
+        obstacles,
+        start=1
+    ):
+
         print(
-            f"Cluster {cluster_index}: "
-            f"Distance={average_distance:.2f} m | "
-            f"Center Angle={average_angle_deg:.1f} deg | "
+            f"Obstacle {obstacle_index}: "
+            f"Distance={obstacle['distance']:.2f} m | "
+            f"Center Angle={obstacle['angle_deg']:.1f} deg | "
             f"Angular Width="
-            f"{min_angle_deg:.1f}..{max_angle_deg:.1f} deg | "
-            f"Points={len(cluster)}"
+            f"{obstacle['min_angle_deg']:.1f}.."
+            f"{obstacle['max_angle_deg']:.1f} deg | "
+            f"Points={obstacle['points']}"
         )
 
 
 def main():
+
     node = Node()
 
     print("Connecting to LiDAR...")
@@ -147,7 +178,7 @@ def main():
 
     try:
         while True:
-            pass
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
         print("\nStopping LiDAR viewer.")
