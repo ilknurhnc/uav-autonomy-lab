@@ -9,7 +9,7 @@ from companion.autonomy.motion_controller import (calculate_control_command, con
 
 
 CAMERA_TOPIC = (
-    "/world/vision_test/model/x500_mono_cam_0/"
+    "/world/vision_test/model/x500_lidar_camera_0/"
     "link/camera_link/sensor/camera/image"
 )
 

@@ -6,7 +6,7 @@ from gz.msgs10.laserscan_pb2 import LaserScan
 
 
 LIDAR_TOPIC = (
-    "/world/vision_test/model/x500_lidar_2d_0/"
+    "/world/vision_test/model/x500_lidar_camera_0/"
     "link/link/sensor/lidar_2d_v2/scan"
 )
 

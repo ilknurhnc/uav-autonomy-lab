@@ -20,7 +20,7 @@ from companion.autonomy.motion_controller import (
 
 
 CAMERA_TOPIC = (
-    "/world/vision_test/model/x500_mono_cam_0/"
+    "/world/vision_test/model/x500_lidar_camera_0/"
     "link/camera_link/sensor/camera/image"
 )
 
@@ -258,7 +258,7 @@ async def run():
             else:
                 forward_speed = 0.0
                 right_speed = 0.0
-                
+
                 error_x = target["error_x"]
 
                 control_command = calculate_control_command(
