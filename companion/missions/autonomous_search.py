@@ -13,6 +13,7 @@ from mavsdk import System
 from mavsdk.offboard import (
     OffboardError,
     PositionNedYaw,
+    VelocityBodyYawspeed,
 )
 
 from companion.vision.lidar_viewer import (
@@ -307,6 +308,320 @@ def calculate_viewpoint(
     return target_north, target_east
 
 
+def detect_red_target(frame):
+    if frame is None:
+        return None
+
+    hsv = cv2.cvtColor(
+        frame,
+        cv2.COLOR_BGR2HSV,
+    )
+
+    lower_red_1 = np.array(
+        [0, 120, 70]
+    )
+
+    upper_red_1 = np.array(
+        [10, 255, 255]
+    )
+
+    lower_red_2 = np.array(
+        [170, 120, 70]
+    )
+
+    upper_red_2 = np.array(
+        [180, 255, 255]
+    )
+
+    mask_1 = cv2.inRange(
+        hsv,
+        lower_red_1,
+        upper_red_1,
+    )
+
+    mask_2 = cv2.inRange(
+        hsv,
+        lower_red_2,
+        upper_red_2,
+    )
+
+    mask = mask_1 | mask_2
+
+    contours, _ = cv2.findContours(
+        mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    if not contours:
+        return None
+
+    largest_contour = max(
+        contours,
+        key=cv2.contourArea,
+    )
+
+    area = cv2.contourArea(
+        largest_contour
+    )
+
+    if area < 500:
+        return None
+
+    x, y, width, height = (
+        cv2.boundingRect(
+            largest_contour
+        )
+    )
+
+    center_x = (
+        x + width // 2
+    )
+
+    center_y = (
+        y + height // 2
+    )
+
+    return {
+        "center_x": center_x,
+        "center_y": center_y,
+        "area": area,
+    }
+
+
+def detect_red_target(frame):
+    if frame is None:
+        return None
+
+    hsv = cv2.cvtColor(
+        frame,
+        cv2.COLOR_BGR2HSV,
+    )
+
+    lower_red_1 = np.array(
+        [0, 120, 70]
+    )
+
+    upper_red_1 = np.array(
+        [10, 255, 255]
+    )
+
+    lower_red_2 = np.array(
+        [170, 120, 70]
+    )
+
+    upper_red_2 = np.array(
+        [180, 255, 255]
+    )
+
+    mask_1 = cv2.inRange(
+        hsv,
+        lower_red_1,
+        upper_red_1,
+    )
+
+    mask_2 = cv2.inRange(
+        hsv,
+        lower_red_2,
+        upper_red_2,
+    )
+
+    mask = mask_1 | mask_2
+
+    contours, _ = cv2.findContours(
+        mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    if not contours:
+        return None
+
+    largest_contour = max(
+        contours,
+        key=cv2.contourArea,
+    )
+
+    area = cv2.contourArea(
+        largest_contour
+    )
+
+    if area < 500:
+        return None
+
+    x, y, width, height = (
+        cv2.boundingRect(
+            largest_contour
+        )
+    )
+
+    center_x = (
+        x + width // 2
+    )
+
+    center_y = (
+        y + height // 2
+    )
+
+    return {
+        "center_x": center_x,
+        "center_y": center_y,
+        "area": area,
+    }
+
+
+async def search_target(
+    drone,
+    selected_object,
+):
+    print()
+    print(
+        f"Searching around Object "
+        f"{selected_object['id']}..."
+    )
+
+    search_steps = 0
+    max_search_steps = 72
+
+    while (
+        search_steps
+        < max_search_steps
+    ):
+        frame = get_latest_frame()
+
+        target = detect_red_target(
+            frame
+        )
+
+        if target is not None:
+            print()
+            print(
+                "RED TARGET FOUND!"
+            )
+
+            print(
+                f"Target center: "
+                f"X={target['center_x']} | "
+                f"Y={target['center_y']} | "
+                f"Area={target['area']:.0f}"
+            )
+
+            return target
+
+        print(
+            f"Search step: "
+            f"{search_steps + 1}/"
+            f"{max_search_steps} | "
+            f"Target not visible"
+        )
+
+        await drone.offboard.set_velocity_body(
+            VelocityBodyYawspeed(
+                0.0,
+                0.0,
+                0.0,
+                10.0,
+            )
+        )
+
+        await asyncio.sleep(
+            0.5
+        )
+
+        search_steps += 1
+
+    print()
+    print(
+        "Target not found "
+        "around this object."
+    )
+
+    return None
+
+
+async def track_target(drone):
+    print()
+    print("Tracking red target...")
+
+    while True:
+        frame = get_latest_frame()
+
+        if frame is None:
+            print("Waiting for camera frame...")
+            await asyncio.sleep(0.1)
+            continue
+
+        target = detect_red_target(
+            frame
+        )
+
+        if target is None:
+            print(
+                "Target lost during tracking."
+            )
+
+            return False
+
+        frame_width = frame.shape[1]
+
+        camera_center_x = (
+            frame_width // 2
+        )
+
+        error_x = (
+            target["center_x"]
+            - camera_center_x
+        )
+
+        control_command = (
+            calculate_control_command(
+                error_x
+            )
+        )
+
+        yaw_speed = (
+            control_to_yaw_speed(
+                control_command
+            )
+        )
+
+        print(
+            f"Target X={target['center_x']} | "
+            f"Center X={camera_center_x} | "
+            f"Error X={error_x} | "
+            f"Yaw={yaw_speed:.2f}"
+        )
+
+        if abs(error_x) < 20:
+            await drone.offboard.set_velocity_body(
+                VelocityBodyYawspeed(
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+            )
+
+            print()
+            print(
+                "TARGET CENTERED!"
+            )
+
+            return True
+
+        await drone.offboard.set_velocity_body(
+            VelocityBodyYawspeed(
+                0.0,
+                0.0,
+                0.0,
+                yaw_speed,
+            )
+        )
+
+        await asyncio.sleep(0.1)
+
+
+
 async def run():
     print("Autonomous search mission starting...")
 
@@ -327,6 +642,20 @@ async def run():
         return
 
     print("LiDAR connected!")
+
+    print("Connecting to camera...")
+
+    camera_success = node.subscribe(
+        Image,
+        CAMERA_TOPIC,
+        image_callback,
+    )
+
+    if not camera_success:
+        print("Failed to subscribe to camera.")
+        return
+
+    print("Camera connected!")
 
     drone = System()
 
@@ -634,6 +963,118 @@ async def run():
             f"State transition: "
             f"MOVE_TO_VIEWPOINT -> {state}"
         )
+
+    if state == SEARCH_TARGET:
+        print()
+        print(
+            f"Current state: {state}"
+        )
+
+        target = await search_target(
+            drone,
+            selected_object,
+        )
+
+        if target is not None:
+            state = TRACK
+
+            print()
+            print(
+                f"State transition: "
+                f"SEARCH_TARGET -> {state}"
+            )
+
+        else:
+            inspected_object_ids.add(
+                selected_object["id"]
+            )
+
+            state = NEXT_OBJECT
+
+            print()
+            print(
+                f"Object "
+                f"{selected_object['id']} "
+                f"marked as inspected."
+            )
+
+            print(
+                f"State transition: "
+                f"SEARCH_TARGET -> {state}"
+            )
+
+    if state == TRACK:
+        print()
+        print(
+            f"Current state: {state}"
+        )
+
+        target_centered = (
+            await track_target(
+                drone
+            )
+        )
+
+        if target_centered:
+            state = CENTERED
+
+            print()
+            print(
+                f"State transition: "
+                f"TRACK -> {state}"
+            )
+
+        else:
+            state = SEARCH_TARGET
+
+            print()
+            print(
+                f"State transition: "
+                f"TRACK -> {state}"
+            )
+
+    if state == CENTERED:
+        print()
+        print(
+            f"Current state: {state}"
+        )
+
+        print()
+        print(
+            "MISSION SUCCESS!"
+        )
+
+        print(
+            "Red target found "
+            "and centered."
+        )
+
+        await drone.offboard.set_velocity_body(
+            VelocityBodyYawspeed(
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+        )
+
+        await asyncio.sleep(
+            3.0
+        )
+
+        try:
+            await drone.offboard.stop()
+
+        except OffboardError:
+            pass
+
+        print(
+            "Landing..."
+        )
+
+        await drone.action.land()
+
+        return
 
     print()
     print(
