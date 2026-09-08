@@ -15,60 +15,92 @@ from companion.autonomy.coordinate_transform import (
     sensor_to_local_ned,
 )
 
+from companion.autonomy.obstacle_map import (
+    ObstacleMap,
+)
+
 
 latest_obstacles = []
 obstacle_lock = threading.Lock()
+
+
+obstacle_map = ObstacleMap(
+    merge_distance=2.5
+)
 
 
 def lidar_callback(msg: LaserScan):
 
     global latest_obstacles
 
-    obstacles = extract_obstacles(msg)
+    obstacles = extract_obstacles(
+        msg
+    )
 
     with obstacle_lock:
-        latest_obstacles = obstacles
+
+        latest_obstacles = (
+            obstacles
+        )
 
 
 def get_latest_obstacles():
 
     with obstacle_lock:
-        return latest_obstacles.copy()
+
+        return (
+            latest_obstacles.copy()
+        )
 
 
 async def get_local_pose(drone):
 
     async for position_velocity in (
-        drone.telemetry.position_velocity_ned()
+        drone.telemetry
+        .position_velocity_ned()
     ):
 
-        position = position_velocity.position
+        position = (
+            position_velocity.position
+        )
 
-        north = position.north_m
-        east = position.east_m
+        drone_north = (
+            position.north_m
+        )
+
+        drone_east = (
+            position.east_m
+        )
 
         break
+
 
     async for attitude in (
-        drone.telemetry.attitude_euler()
+        drone.telemetry
+        .attitude_euler()
     ):
 
-        yaw = attitude.yaw_deg
+        yaw_deg = (
+            attitude.yaw_deg
+        )
 
         break
 
-    return north, east, yaw
+
+    return (
+        drone_north,
+        drone_east,
+        yaw_deg,
+    )
 
 
 async def run():
 
-    # -----------------------------
-    # LiDAR bağlantısı
-    # -----------------------------
-
     node = Node()
 
-    print("Connecting to LiDAR...")
+    print(
+        "Connecting to LiDAR..."
+    )
 
     success = node.subscribe(
         LaserScan,
@@ -78,22 +110,31 @@ async def run():
 
     if not success:
 
-        print("Failed to subscribe to LiDAR.")
+        print(
+            "Failed to subscribe "
+            "to LiDAR."
+        )
+
         return
 
-    print("LiDAR connected!")
 
-    # -----------------------------
-    # PX4 bağlantısı
-    # -----------------------------
+    print(
+        "LiDAR connected!"
+    )
+
 
     drone = System()
 
-    print("Connecting to PX4...")
+    print(
+        "Connecting to PX4..."
+    )
 
     await drone.connect(
-        system_address="udpin://0.0.0.0:14540"
+        system_address=(
+            "udpin://0.0.0.0:14540"
+        )
     )
+
 
     async for state in (
         drone.core.connection_state()
@@ -101,30 +142,48 @@ async def run():
 
         if state.is_connected:
 
-            print("Connected to PX4!")
+            print(
+                "Connected to PX4!"
+            )
+
             break
 
+
     print()
-    print("Monitoring obstacle local positions...")
-    print("Press Ctrl+C to stop.")
+    print(
+        "Building local obstacle map..."
+    )
 
-    # LiDAR'ın ilk scan'i gelsin
-    await asyncio.sleep(1.0)
+    print(
+        "Press Ctrl+C to stop."
+    )
 
-    # -----------------------------
-    # Monitor döngüsü
-    # -----------------------------
+
+    await asyncio.sleep(
+        1.0
+    )
+
 
     while True:
 
-        drone_north, drone_east, yaw_deg = (
-            await get_local_pose(drone)
+        (
+            drone_north,
+            drone_east,
+            yaw_deg,
+        ) = await get_local_pose(
+            drone
         )
 
-        obstacles = get_latest_obstacles()
+
+        obstacles = (
+            get_latest_obstacles()
+        )
+
 
         print()
-        print("=" * 80)
+        print(
+            "=" * 80
+        )
 
         print(
             f"DRONE | "
@@ -134,47 +193,142 @@ async def run():
         )
 
         print(
-            f"Detected clusters: "
+            f"Current LiDAR clusters: "
             f"{len(obstacles)}"
         )
 
-        print("-" * 80)
+        print(
+            "-" * 80
+        )
+
 
         for index, obstacle in enumerate(
             obstacles,
             start=1,
         ):
 
-            local_position = sensor_to_local_ned(
-                x_sensor=obstacle["x_sensor"],
-                y_sensor=obstacle["y_sensor"],
-                drone_north=drone_north,
-                drone_east=drone_east,
-                yaw_deg=yaw_deg,
+            local_position = (
+                sensor_to_local_ned(
+                    x_sensor=(
+                        obstacle[
+                            "x_sensor"
+                        ]
+                    ),
+
+                    y_sensor=(
+                        obstacle[
+                            "y_sensor"
+                        ]
+                    ),
+
+                    drone_north=(
+                        drone_north
+                    ),
+
+                    drone_east=(
+                        drone_east
+                    ),
+
+                    yaw_deg=(
+                        yaw_deg
+                    ),
+                )
             )
+
+
+            local_north = (
+                local_position[
+                    "north_m"
+                ]
+            )
+
+            local_east = (
+                local_position[
+                    "east_m"
+                ]
+            )
+
+
+            object_id = (
+                obstacle_map
+                .add_observation(
+                    north=local_north,
+                    east=local_east,
+                )
+            )
+
 
             print(
-                f"Cluster {index} | "
-                f"D={obstacle['distance']:.2f} m | "
-                f"A={obstacle['angle_deg']:.1f} deg | "
-                f"Sensor X={obstacle['x_sensor']:.2f} | "
-                f"Y={obstacle['y_sensor']:.2f} || "
-                f"LOCAL N={local_position['north_m']:.2f} | "
-                f"E={local_position['east_m']:.2f} | "
-                f"Points={obstacle['points']}"
+                f"Cluster {index} "
+                f"-> Object {object_id} | "
+                f"LOCAL N="
+                f"{local_north:.2f} | "
+                f"E="
+                f"{local_east:.2f}"
             )
 
-        await asyncio.sleep(1.0)
+
+        mapped_objects = obstacle_map.get_objects()
+        confirmed_objects = obstacle_map.get_confirmed_objects()
+
+        print()
+        print(
+            "LOCAL OBJECT MAP"
+        )
+
+        print(
+            "-" * 80
+        )
+
+
+        for obstacle_object in (
+            mapped_objects
+        ):
+
+            status = (
+                "CONFIRMED"
+                if obstacle_object["confirmed"]
+                else "TENTATIVE"
+            )
+            print(
+                f"Object "
+                f"{obstacle_object['id']} | "
+                f"North="
+                f"{obstacle_object['north_m']:.2f} | "
+                f"East="
+                f"{obstacle_object['east_m']:.2f} | "
+                f"Observations="
+                f"{obstacle_object['observations']} | "
+                f"{status}"
+            )
+
+
+        print(
+            f"\nMapped physical objects: "
+            f"{len(mapped_objects)}"
+        )
+
+        print(
+            f"Confirmed physical objects: "
+            f"{len(confirmed_objects)}"
+        )
+
+
+        await asyncio.sleep(
+            1.0
+        )
 
 
 if __name__ == "__main__":
 
     try:
 
-        asyncio.run(run())
+        asyncio.run(
+            run()
+        )
 
     except KeyboardInterrupt:
 
         print(
-            "\nObstacle local monitor stopped."
+            "\nObstacle map monitor stopped."
         )

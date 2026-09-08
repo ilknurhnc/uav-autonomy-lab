@@ -8,6 +8,10 @@ from mavsdk.offboard import (
     PositionNedYaw,
 )
 
+from companion.autonomy.obstacle_map import (
+    ObstacleMap,
+)
+
 from gz.transport13 import Node
 from gz.msgs10.laserscan_pb2 import LaserScan
 
@@ -25,6 +29,9 @@ TAKEOFF_ALTITUDE = 2.5
 SAFE_DISTANCE = 5.0
 POSITION_TOLERANCE = 0.5
 
+obstacle_map = ObstacleMap(
+    merge_distance=2.5
+)
 
 latest_obstacles = []
 obstacle_lock = threading.Lock()
@@ -52,8 +59,17 @@ async def get_local_pose(drone):
         drone.telemetry.position_velocity_ned()
     ):
 
-        north = position_velocity.position.north_m
-        east = position_velocity.position.east_m
+        north = (
+            position_velocity
+            .position
+            .north_m
+        )
+
+        east = (
+            position_velocity
+            .position
+            .east_m
+        )
 
         break
 
@@ -67,11 +83,171 @@ async def get_local_pose(drone):
     return north, east, yaw
 
 
+async def build_confirmed_obstacle_map(
+    drone,
+):
+
+    print()
+    print(
+        "Building confirmed obstacle map..."
+    )
+
+    while True:
+
+        (
+            drone_north,
+            drone_east,
+            yaw_deg,
+        ) = await get_local_pose(drone)
+
+        obstacles = (
+            get_latest_obstacles()
+        )
+
+        print()
+        print(
+            f"Current LiDAR clusters: "
+            f"{len(obstacles)}"
+        )
+
+        for obstacle in obstacles:
+
+            obstacle_local = (
+                sensor_to_local_ned(
+                    x_sensor=
+                        obstacle["x_sensor"],
+
+                    y_sensor=
+                        obstacle["y_sensor"],
+
+                    drone_north=
+                        drone_north,
+
+                    drone_east=
+                        drone_east,
+
+                    yaw_deg=
+                        yaw_deg,
+                )
+            )
+
+            obstacle_map.add_observation(
+                north=
+                    obstacle_local[
+                        "north_m"
+                    ],
+
+                east=
+                    obstacle_local[
+                        "east_m"
+                    ],
+            )
+
+        mapped_objects = (
+            obstacle_map
+            .get_objects()
+        )
+
+        confirmed_objects = (
+            obstacle_map
+            .get_confirmed_objects()
+        )
+
+        print(
+            f"Mapped objects: "
+            f"{len(mapped_objects)}"
+        )
+
+        print(
+            f"Confirmed objects: "
+            f"{len(confirmed_objects)}"
+        )
+
+        for obstacle_object in (
+            mapped_objects
+        ):
+
+            status = (
+                "CONFIRMED"
+                if obstacle_object[
+                    "confirmed"
+                ]
+                else "TENTATIVE"
+            )
+
+            print(
+                f"Object "
+                f"{obstacle_object['id']} | "
+                f"North="
+                f"{obstacle_object['north_m']:.2f} | "
+                f"East="
+                f"{obstacle_object['east_m']:.2f} | "
+                f"Observations="
+                f"{obstacle_object['observations']} | "
+                f"{status}"
+            )
+
+        if confirmed_objects:
+
+            print()
+            print(
+                "Confirmed obstacle map ready!"
+            )
+
+            return confirmed_objects
+
+        await asyncio.sleep(1.0)
+
+
+def select_object(
+    confirmed_objects,
+    drone_north,
+    drone_east,
+):
+
+    closest_object = None
+    closest_distance = None
+
+    for obstacle_object in confirmed_objects:
+
+        north_offset = (
+            obstacle_object["north_m"]
+            - drone_north
+        )
+
+        east_offset = (
+            obstacle_object["east_m"]
+            - drone_east
+        )
+
+        distance = math.sqrt(
+            north_offset ** 2
+            + east_offset ** 2
+        )
+
+        if distance <= SAFE_DISTANCE:
+            continue
+
+        if (
+            closest_distance is None
+            or distance < closest_distance
+        ):
+            closest_distance = distance
+            closest_object = obstacle_object
+
+    return (
+        closest_object,
+        closest_distance,
+    )
+
+
 async def run():
 
     node = Node()
 
-    print("Connecting to LiDAR...")
+    print(
+        "Connecting to LiDAR..."
+    )
 
     success = node.subscribe(
         LaserScan,
@@ -80,65 +256,113 @@ async def run():
     )
 
     if not success:
-        print("Failed to subscribe to LiDAR.")
+
+        print(
+            "Failed to subscribe "
+            "to LiDAR."
+        )
+
         return
 
-    print("LiDAR connected!")
+    print(
+        "LiDAR connected!"
+    )
 
     drone = System()
 
-    print("Connecting to PX4...")
-
-    await drone.connect(
-        system_address="udpin://0.0.0.0:14540"
+    print(
+        "Connecting to PX4..."
     )
 
-    async for state in drone.core.connection_state():
+    await drone.connect(
+        system_address=
+            "udpin://0.0.0.0:14540"
+    )
+
+    async for state in (
+        drone.core.connection_state()
+    ):
 
         if state.is_connected:
-            print("Connected to PX4!")
+
+            print(
+                "Connected to PX4!"
+            )
+
             break
 
-    print("Waiting for vehicle to be ready...")
+    print(
+        "Waiting for vehicle "
+        "to be ready..."
+    )
 
-    async for health in drone.telemetry.health():
+    async for health in (
+        drone.telemetry.health()
+    ):
 
         if (
             health.is_global_position_ok
-            and health.is_home_position_ok
+            and
+            health.is_home_position_ok
         ):
-            print("Vehicle is ready!")
+
+            print(
+                "Vehicle is ready!"
+            )
+
             break
 
     await drone.action.set_takeoff_altitude(
         TAKEOFF_ALTITUDE
     )
 
-    print("Arming...")
+    print(
+        "Arming..."
+    )
+
     await drone.action.arm()
 
-    print("Taking off...")
+    print(
+        "Taking off..."
+    )
+
     await drone.action.takeoff()
 
-    async for position in drone.telemetry.position():
+    async for position in (
+        drone.telemetry.position()
+    ):
 
-        altitude = position.relative_altitude_m
-
-        print(
-            f"Altitude: {altitude:.2f} m"
+        altitude = (
+            position.relative_altitude_m
         )
 
-        if altitude >= TAKEOFF_ALTITUDE * 0.90:
-            print("Takeoff altitude reached!")
+        print(
+            f"Altitude: "
+            f"{altitude:.2f} m"
+        )
+
+        if (
+            altitude
+            >= TAKEOFF_ALTITUDE * 0.90
+        ):
+
+            print(
+                "Takeoff altitude reached!"
+            )
+
             break
 
     await asyncio.sleep(1)
 
-    print("Reading drone pose...")
-
-    drone_north, drone_east, yaw_deg = (
-        await get_local_pose(drone)
+    print(
+        "Reading drone pose..."
     )
+
+    (
+        drone_north,
+        drone_east,
+        yaw_deg,
+    ) = await get_local_pose(drone)
 
     print(
         f"Drone: "
@@ -147,92 +371,127 @@ async def run():
         f"Yaw={yaw_deg:.1f}"
     )
 
-    obstacles = get_latest_obstacles()
+    confirmed_objects = (
+        await build_confirmed_obstacle_map(
+            drone
+        )
+    )
 
-    if not obstacles:
+    if not confirmed_objects:
 
-        print("No LiDAR obstacle detected.")
+        print(
+            "No confirmed obstacle found."
+        )
+
         await drone.action.land()
+
         return
 
+    print()
     print(
-        f"Detected obstacles: {len(obstacles)}"
+        f"Confirmed obstacles: "
+        f"{len(confirmed_objects)}"
     )
 
-    selected_obstacle = min(
-        obstacles,
-        key=lambda obstacle: obstacle["distance"],
+    (
+        selected_object,
+        obstacle_distance,
+    ) = select_object(
+        confirmed_objects,
+        drone_north,
+        drone_east,
+    )
+
+    if selected_object is None:
+
+        print(
+            "No object could be selected."
+        )
+
+        await drone.action.land()
+
+        return
+
+    obstacle_north = (
+        selected_object["north_m"]
+    )
+
+    obstacle_east = (
+        selected_object["east_m"]
+    )
+
+    print()
+    print(
+        f"Selected Object "
+        f"{selected_object['id']} | "
+        f"North="
+        f"{obstacle_north:.2f} | "
+        f"East="
+        f"{obstacle_east:.2f} | "
+        f"Observations="
+        f"{selected_object['observations']}"
     )
 
     print(
-        f"Selected obstacle: "
-        f"Distance={selected_obstacle['distance']:.2f} m | "
-        f"Angle={selected_obstacle['angle_deg']:.1f} deg"
-    )
-
-    obstacle_local = sensor_to_local_ned(
-        x_sensor=selected_obstacle["x_sensor"],
-        y_sensor=selected_obstacle["y_sensor"],
-        drone_north=drone_north,
-        drone_east=drone_east,
-        yaw_deg=yaw_deg,
-    )
-
-    obstacle_north = obstacle_local["north_m"]
-    obstacle_east = obstacle_local["east_m"]
-
-    print(
-        f"Obstacle local position: "
-        f"North={obstacle_north:.2f} | "
-        f"East={obstacle_east:.2f}"
+        f"Distance to object: "
+        f"{obstacle_distance:.2f} m"
     )
 
     north_offset = (
-        obstacle_north - drone_north
+        obstacle_north
+        - drone_north
     )
 
     east_offset = (
-        obstacle_east - drone_east
+        obstacle_east
+        - drone_east
     )
 
-    obstacle_distance = math.sqrt(
-        north_offset ** 2
-        + east_offset ** 2
-    )
-
-    if obstacle_distance <= SAFE_DISTANCE:
+    if (
+        obstacle_distance
+        <= SAFE_DISTANCE
+    ):
 
         print(
-            "Obstacle is already too close. "
+            "Obstacle is already "
+            "too close. "
             "Mission aborted."
         )
 
         await drone.action.land()
+
         return
 
     travel_distance = (
-        obstacle_distance - SAFE_DISTANCE
+        obstacle_distance
+        - SAFE_DISTANCE
     )
 
     north_direction = (
-        north_offset / obstacle_distance
+        north_offset
+        / obstacle_distance
     )
 
     east_direction = (
-        east_offset / obstacle_distance
+        east_offset
+        / obstacle_distance
     )
 
     target_north = (
         drone_north
-        + north_direction * travel_distance
+        + north_direction
+        * travel_distance
     )
 
     target_east = (
         drone_east
-        + east_direction * travel_distance
+        + east_direction
+        * travel_distance
     )
 
-    target_down = -TAKEOFF_ALTITUDE
+    target_down = (
+        -TAKEOFF_ALTITUDE
+    )
 
     print(
         f"Inspection target: "
@@ -240,7 +499,9 @@ async def run():
         f"East={target_east:.2f}"
     )
 
-    print("Preparing Offboard...")
+    print(
+        "Preparing Offboard..."
+    )
 
     await drone.offboard.set_position_ned(
         PositionNedYaw(
@@ -255,18 +516,25 @@ async def run():
 
         await drone.offboard.start()
 
-        print("Offboard started!")
+        print(
+            "Offboard started!"
+        )
 
     except OffboardError as error:
 
         print(
-            f"Offboard start failed: {error}"
+            f"Offboard start failed: "
+            f"{error}"
         )
 
         await drone.action.land()
+
         return
 
-    print("Flying toward obstacle...")
+    print(
+        "Flying toward "
+        "confirmed obstacle..."
+    )
 
     await drone.offboard.set_position_ned(
         PositionNedYaw(
@@ -278,62 +546,96 @@ async def run():
     )
 
     async for position_velocity in (
-        drone.telemetry.position_velocity_ned()
+        drone.telemetry
+        .position_velocity_ned()
     ):
 
-        position = position_velocity.position
+        position = (
+            position_velocity.position
+        )
 
         north_error = (
-            target_north - position.north_m
+            target_north
+            - position.north_m
         )
 
         east_error = (
-            target_east - position.east_m
+            target_east
+            - position.east_m
         )
 
         print(
-            f"North={position.north_m:.2f} | "
-            f"East={position.east_m:.2f} | "
-            f"N error={north_error:.2f} | "
-            f"E error={east_error:.2f}"
+            f"North="
+            f"{position.north_m:.2f} | "
+            f"East="
+            f"{position.east_m:.2f} | "
+            f"N error="
+            f"{north_error:.2f} | "
+            f"E error="
+            f"{east_error:.2f}"
         )
 
         if (
-            abs(north_error) < POSITION_TOLERANCE
+            abs(north_error)
+            < POSITION_TOLERANCE
             and
-            abs(east_error) < POSITION_TOLERANCE
+            abs(east_error)
+            < POSITION_TOLERANCE
         ):
 
-            print("Inspection position reached!")
+            print(
+                "Inspection position "
+                "reached!"
+            )
+
             break
 
-    print("Hovering near obstacle...")
+    print(
+        "Hovering near obstacle..."
+    )
 
     await asyncio.sleep(3)
 
     try:
+
         await drone.offboard.stop()
 
     except OffboardError as error:
+
         print(
-            f"Offboard stop failed: {error}"
+            f"Offboard stop failed: "
+            f"{error}"
         )
 
-    print("Landing...")
+    print(
+        "Landing..."
+    )
 
     await drone.action.land()
 
-    async for in_air in drone.telemetry.in_air():
+    async for in_air in (
+        drone.telemetry.in_air()
+    ):
 
         if not in_air:
-            print("Landed!")
+
+            print(
+                "Landed!"
+            )
+
             break
 
 
 if __name__ == "__main__":
 
     try:
-        asyncio.run(run())
+
+        asyncio.run(
+            run()
+        )
 
     except KeyboardInterrupt:
-        print("\nMission stopped.")
+
+        print(
+            "\nMission stopped."
+        )
