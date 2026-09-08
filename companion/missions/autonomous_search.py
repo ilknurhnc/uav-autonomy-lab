@@ -10,6 +10,11 @@ from gz.msgs10.laserscan_pb2 import LaserScan
 
 from mavsdk import System
 
+from mavsdk.offboard import (
+    OffboardError,
+    PositionNedYaw,
+)
+
 from companion.vision.lidar_viewer import (
     LIDAR_TOPIC,
     extract_obstacles,
@@ -255,6 +260,53 @@ def select_next_object(
     return selected_object, selected_distance
 
 
+def calculate_viewpoint(
+    drone_north,
+    drone_east,
+    obstacle_north,
+    obstacle_east,
+    obstacle_distance,
+):
+    north_offset = (
+        obstacle_north
+        - drone_north
+    )
+
+    east_offset = (
+        obstacle_east
+        - drone_east
+    )
+
+    north_direction = (
+        north_offset
+        / obstacle_distance
+    )
+
+    east_direction = (
+        east_offset
+        / obstacle_distance
+    )
+
+    travel_distance = (
+        obstacle_distance
+        - SAFE_DISTANCE
+    )
+
+    target_north = (
+        drone_north
+        + north_direction
+        * travel_distance
+    )
+
+    target_east = (
+        drone_east
+        + east_direction
+        * travel_distance
+    )
+
+    return target_north, target_east
+
+
 async def run():
     print("Autonomous search mission starting...")
 
@@ -437,6 +489,150 @@ async def run():
         print(
             f"State transition: "
             f"SELECT_OBJECT -> {state}"
+        )
+
+    if state == MOVE_TO_VIEWPOINT:
+        print()
+        print(
+            f"Current state: {state}"
+        )
+
+        (
+            drone_north,
+            drone_east,
+            yaw_deg,
+        ) = await get_local_pose(drone)
+
+        obstacle_north = (
+            selected_object["north_m"]
+        )
+
+        obstacle_east = (
+            selected_object["east_m"]
+        )
+
+        north_offset = (
+            obstacle_north
+            - drone_north
+        )
+
+        east_offset = (
+            obstacle_east
+            - drone_east
+        )
+
+        obstacle_distance = (
+            north_offset ** 2
+            + east_offset ** 2
+        ) ** 0.5
+
+        (
+            target_north,
+            target_east,
+        ) = calculate_viewpoint(
+            drone_north,
+            drone_east,
+            obstacle_north,
+            obstacle_east,
+            obstacle_distance,
+        )
+
+        target_down = (
+            -TAKEOFF_ALTITUDE
+        )
+
+        print(
+            f"Viewpoint: "
+            f"N={target_north:.2f} | "
+            f"E={target_east:.2f}"
+        )
+
+        print(
+            "Preparing Offboard..."
+        )
+
+        await drone.offboard.set_position_ned(
+            PositionNedYaw(
+                drone_north,
+                drone_east,
+                target_down,
+                yaw_deg,
+            )
+        )
+
+        try:
+            await drone.offboard.start()
+
+            print(
+                "Offboard started!"
+            )
+
+        except OffboardError as error:
+            print(
+                f"Offboard start failed: "
+                f"{error}"
+            )
+
+            await drone.action.land()
+            return
+
+        print(
+            f"Flying toward viewpoint "
+            f"for Object "
+            f"{selected_object['id']}..."
+        )
+
+        await drone.offboard.set_position_ned(
+            PositionNedYaw(
+                target_north,
+                target_east,
+                target_down,
+                yaw_deg,
+            )
+        )
+
+        async for position_velocity in (
+            drone.telemetry.position_velocity_ned()
+        ):
+            position = (
+                position_velocity.position
+            )
+
+            north_error = (
+                target_north
+                - position.north_m
+            )
+
+            east_error = (
+                target_east
+                - position.east_m
+            )
+
+            print(
+                f"N={position.north_m:.2f} | "
+                f"E={position.east_m:.2f} | "
+                f"N error={north_error:.2f} | "
+                f"E error={east_error:.2f}"
+            )
+
+            if (
+                abs(north_error)
+                < POSITION_TOLERANCE
+                and
+                abs(east_error)
+                < POSITION_TOLERANCE
+            ):
+                print(
+                    "Viewpoint reached!"
+                )
+                break
+
+        state = SEARCH_TARGET
+
+        print()
+        print(
+            f"State transition: "
+            f"MOVE_TO_VIEWPOINT -> {state}"
         )
 
     print()
