@@ -29,11 +29,18 @@ from companion.autonomy.coordinate_transform import (
     sensor_to_local_ned,
 )
 
-from companion.autonomy.motion_controller import (
-    calculate_control_command,
-    control_to_yaw_speed,
+from companion.missions.autonomous_search_modules.viewpoint_planner import (
+    calculate_viewpoint,
+    select_next_object,
 )
 
+from companion.missions.autonomous_search_modules.search_behavior import (
+    search_target,
+)
+
+from companion.missions.autonomous_search_modules.tracking_behavior import (
+    track_target,
+)
 
 CAMERA_TOPIC = (
     "/world/vision_test/model/x500_lidar_camera_0/"
@@ -219,409 +226,6 @@ async def build_confirmed_obstacle_map(drone):
     return []
 
 
-def select_next_object(
-    confirmed_objects,
-    drone_north,
-    drone_east,
-):
-    selected_object = None
-    selected_distance = None
-
-    for obstacle_object in confirmed_objects:
-        object_id = obstacle_object["id"]
-
-        if object_id in inspected_object_ids:
-            continue
-
-        north_offset = (
-            obstacle_object["north_m"]
-            - drone_north
-        )
-
-        east_offset = (
-            obstacle_object["east_m"]
-            - drone_east
-        )
-
-        distance = (
-            north_offset ** 2
-            + east_offset ** 2
-        ) ** 0.5
-
-        if distance <= SAFE_DISTANCE:
-            continue
-
-        if (
-            selected_distance is None
-            or distance < selected_distance
-        ):
-            selected_object = obstacle_object
-            selected_distance = distance
-
-    return selected_object, selected_distance
-
-
-def calculate_viewpoint(
-    drone_north,
-    drone_east,
-    obstacle_north,
-    obstacle_east,
-    obstacle_distance,
-):
-    north_offset = (
-        obstacle_north
-        - drone_north
-    )
-
-    east_offset = (
-        obstacle_east
-        - drone_east
-    )
-
-    north_direction = (
-        north_offset
-        / obstacle_distance
-    )
-
-    east_direction = (
-        east_offset
-        / obstacle_distance
-    )
-
-    travel_distance = (
-        obstacle_distance
-        - SAFE_DISTANCE
-    )
-
-    target_north = (
-        drone_north
-        + north_direction
-        * travel_distance
-    )
-
-    target_east = (
-        drone_east
-        + east_direction
-        * travel_distance
-    )
-
-    return target_north, target_east
-
-
-def detect_red_target(frame):
-    if frame is None:
-        return None
-
-    hsv = cv2.cvtColor(
-        frame,
-        cv2.COLOR_BGR2HSV,
-    )
-
-    lower_red_1 = np.array(
-        [0, 120, 70]
-    )
-
-    upper_red_1 = np.array(
-        [10, 255, 255]
-    )
-
-    lower_red_2 = np.array(
-        [170, 120, 70]
-    )
-
-    upper_red_2 = np.array(
-        [180, 255, 255]
-    )
-
-    mask_1 = cv2.inRange(
-        hsv,
-        lower_red_1,
-        upper_red_1,
-    )
-
-    mask_2 = cv2.inRange(
-        hsv,
-        lower_red_2,
-        upper_red_2,
-    )
-
-    mask = mask_1 | mask_2
-
-    contours, _ = cv2.findContours(
-        mask,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE,
-    )
-
-    if not contours:
-        return None
-
-    largest_contour = max(
-        contours,
-        key=cv2.contourArea,
-    )
-
-    area = cv2.contourArea(
-        largest_contour
-    )
-
-    if area < 500:
-        return None
-
-    x, y, width, height = (
-        cv2.boundingRect(
-            largest_contour
-        )
-    )
-
-    center_x = (
-        x + width // 2
-    )
-
-    center_y = (
-        y + height // 2
-    )
-
-    return {
-        "center_x": center_x,
-        "center_y": center_y,
-        "area": area,
-    }
-
-
-def detect_red_target(frame):
-    if frame is None:
-        return None
-
-    hsv = cv2.cvtColor(
-        frame,
-        cv2.COLOR_BGR2HSV,
-    )
-
-    lower_red_1 = np.array(
-        [0, 120, 70]
-    )
-
-    upper_red_1 = np.array(
-        [10, 255, 255]
-    )
-
-    lower_red_2 = np.array(
-        [170, 120, 70]
-    )
-
-    upper_red_2 = np.array(
-        [180, 255, 255]
-    )
-
-    mask_1 = cv2.inRange(
-        hsv,
-        lower_red_1,
-        upper_red_1,
-    )
-
-    mask_2 = cv2.inRange(
-        hsv,
-        lower_red_2,
-        upper_red_2,
-    )
-
-    mask = mask_1 | mask_2
-
-    contours, _ = cv2.findContours(
-        mask,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE,
-    )
-
-    if not contours:
-        return None
-
-    largest_contour = max(
-        contours,
-        key=cv2.contourArea,
-    )
-
-    area = cv2.contourArea(
-        largest_contour
-    )
-
-    if area < 500:
-        return None
-
-    x, y, width, height = (
-        cv2.boundingRect(
-            largest_contour
-        )
-    )
-
-    center_x = (
-        x + width // 2
-    )
-
-    center_y = (
-        y + height // 2
-    )
-
-    return {
-        "center_x": center_x,
-        "center_y": center_y,
-        "area": area,
-    }
-
-
-async def search_target(
-    drone,
-    selected_object,
-):
-    print()
-    print(
-        f"Searching around Object "
-        f"{selected_object['id']}..."
-    )
-
-    search_steps = 0
-    max_search_steps = 72
-
-    while (
-        search_steps
-        < max_search_steps
-    ):
-        frame = get_latest_frame()
-
-        target = detect_red_target(
-            frame
-        )
-
-        if target is not None:
-            print()
-            print(
-                "RED TARGET FOUND!"
-            )
-
-            print(
-                f"Target center: "
-                f"X={target['center_x']} | "
-                f"Y={target['center_y']} | "
-                f"Area={target['area']:.0f}"
-            )
-
-            return target
-
-        print(
-            f"Search step: "
-            f"{search_steps + 1}/"
-            f"{max_search_steps} | "
-            f"Target not visible"
-        )
-
-        await drone.offboard.set_velocity_body(
-            VelocityBodyYawspeed(
-                0.0,
-                0.0,
-                0.0,
-                10.0,
-            )
-        )
-
-        await asyncio.sleep(
-            0.5
-        )
-
-        search_steps += 1
-
-    print()
-    print(
-        "Target not found "
-        "around this object."
-    )
-
-    return None
-
-
-async def track_target(drone):
-    print()
-    print("Tracking red target...")
-
-    while True:
-        frame = get_latest_frame()
-
-        if frame is None:
-            print("Waiting for camera frame...")
-            await asyncio.sleep(0.1)
-            continue
-
-        target = detect_red_target(
-            frame
-        )
-
-        if target is None:
-            print(
-                "Target lost during tracking."
-            )
-
-            return False
-
-        frame_width = frame.shape[1]
-
-        camera_center_x = (
-            frame_width // 2
-        )
-
-        error_x = (
-            target["center_x"]
-            - camera_center_x
-        )
-
-        control_command = (
-            calculate_control_command(
-                error_x
-            )
-        )
-
-        yaw_speed = (
-            control_to_yaw_speed(
-                control_command
-            )
-        )
-
-        print(
-            f"Target X={target['center_x']} | "
-            f"Center X={camera_center_x} | "
-            f"Error X={error_x} | "
-            f"Yaw={yaw_speed:.2f}"
-        )
-
-        if abs(error_x) < 20:
-            await drone.offboard.set_velocity_body(
-                VelocityBodyYawspeed(
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                )
-            )
-
-            print()
-            print(
-                "TARGET CENTERED!"
-            )
-
-            return True
-
-        await drone.offboard.set_velocity_body(
-            VelocityBodyYawspeed(
-                0.0,
-                0.0,
-                0.0,
-                yaw_speed,
-            )
-        )
-
-        await asyncio.sleep(0.1)
-
-
-
 async def run():
     print("Autonomous search mission starting...")
 
@@ -785,6 +389,7 @@ async def run():
             confirmed_objects,
             drone_north,
             drone_east,
+            inspected_object_ids,
         )
 
         if selected_object is None:
@@ -973,6 +578,7 @@ async def run():
         target = await search_target(
             drone,
             selected_object,
+            get_latest_frame,
         )
 
         if target is not None:
@@ -1011,7 +617,8 @@ async def run():
 
         target_centered = (
             await track_target(
-                drone
+                drone,
+                get_latest_frame,
             )
         )
 
