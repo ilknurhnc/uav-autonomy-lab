@@ -113,37 +113,3 @@ def get_navigation_speed(
         normal_speed,
         closest_distance,
     )
-
-
-def is_forward_path_safe(
-    obstacles,
-):
-    (
-        closest_obstacle,
-        closest_distance,
-    ) = get_closest_forward_obstacle(
-        obstacles
-    )
-
-    if closest_distance is None:
-        return (
-            True,
-            None,
-            None,
-        )
-
-    if (
-        closest_distance
-        <= EMERGENCY_STOP_DISTANCE
-    ):
-        return (
-            False,
-            closest_obstacle,
-            closest_distance,
-        )
-
-    return (
-        True,
-        closest_obstacle,
-        closest_distance,
-    )

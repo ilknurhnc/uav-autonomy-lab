@@ -176,7 +176,7 @@ async def navigate_to_viewpoint(
 
     (
         path_safe,
-        speed,
+        _,
         closest_distance,
     ) = get_navigation_speed(
         obstacles,

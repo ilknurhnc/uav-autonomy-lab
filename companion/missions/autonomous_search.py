@@ -289,7 +289,7 @@ async def run():
             (
                 drone_north,
                 drone_east,
-                yaw_deg,
+                _,
             ) = await get_local_pose(
                 drone
             )
