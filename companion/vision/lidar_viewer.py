@@ -126,6 +126,11 @@ def extract_obstacles(msg: LaserScan):
             for point in cluster
         ) / len(cluster)
 
+        min_distance = min(
+            point["distance"]
+            for point in cluster
+        )
+
         average_angle_deg = (
             math.degrees(
                 average_angle
@@ -182,6 +187,9 @@ def extract_obstacles(msg: LaserScan):
 
             "points":
                 len(cluster),
+
+            "min_distance":
+                min_distance,
         }
 
         obstacles.append(

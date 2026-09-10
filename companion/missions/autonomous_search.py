@@ -8,14 +8,14 @@ from mavsdk.offboard import (
     VelocityBodyYawspeed,
 )
 
+from companion.autonomy.obstacle_map import (
+    ObstacleMap,
+)
+
 from companion.missions.autonomous_search_modules.sensor_manager import (
     get_latest_frame,
     get_latest_obstacles,
     start_sensors,
-)
-
-from companion.autonomy.obstacle_map import (
-    ObstacleMap,
 )
 
 from companion.missions.autonomous_search_modules.mapping_behavior import (
@@ -24,8 +24,14 @@ from companion.missions.autonomous_search_modules.mapping_behavior import (
 )
 
 from companion.missions.autonomous_search_modules.viewpoint_planner import (
-    calculate_viewpoint,
+    calculate_yaw_to_target,
+    generate_inspection_viewpoints,
     select_next_object,
+)
+
+from companion.missions.autonomous_search_modules.navigation_behavior import (
+    align_yaw,
+    navigate_to_viewpoint,
 )
 
 from companion.missions.autonomous_search_modules.search_behavior import (
@@ -37,18 +43,26 @@ from companion.missions.autonomous_search_modules.tracking_behavior import (
 )
 
 
-TAKEOFF_ALTITUDE = 2.5
-POSITION_TOLERANCE = 0.5
-
-
 TAKEOFF = "TAKEOFF"
+
 BUILD_MAP = "BUILD_MAP"
+
 SELECT_OBJECT = "SELECT_OBJECT"
+
 MOVE_TO_VIEWPOINT = "MOVE_TO_VIEWPOINT"
+
 SEARCH_TARGET = "SEARCH_TARGET"
-NEXT_OBJECT = "NEXT_OBJECT"
+
+NEXT_VIEWPOINT = "NEXT_VIEWPOINT"
+
 TRACK = "TRACK"
+
 CENTERED = "CENTERED"
+
+
+TAKEOFF_ALTITUDE = 3.0
+
+MAX_MAP_REFRESHES = 3
 
 
 obstacle_map = ObstacleMap(
@@ -57,412 +71,19 @@ obstacle_map = ObstacleMap(
 
 inspected_object_ids = set()
 
-async def run():
-    print("Autonomous search mission starting...")
+unreachable_object_ids = set()
 
-    state = TAKEOFF
 
-    sensor_node = start_sensors()
-
-    if sensor_node is None:
-        return
-
-    drone = System()
-
-    print("Connecting to PX4...")
-
-    await drone.connect(
-        system_address="udpin://0.0.0.0:14540"
+async def finish_with_rtl(
+    drone,
+    offboard_started,
+):
+    print()
+    print(
+        "Mission search complete."
     )
 
-    async for connection_state in (
-        drone.core.connection_state()
-    ):
-        if connection_state.is_connected:
-            print("Connected to PX4!")
-            break
-
-    print("Waiting for vehicle to be ready...")
-
-    async for health in drone.telemetry.health():
-        print(
-            f"Local: {health.is_local_position_ok} | "
-            f"Home: {health.is_home_position_ok} | "
-            f"Armable: {health.is_armable}"
-        )
-
-        if (
-            health.is_local_position_ok
-            and health.is_home_position_ok
-            and health.is_armable
-        ):
-            print("Vehicle ready!")
-            break
-
-    print()
-    print(f"Current state: {state}")
-
-    if state == TAKEOFF:
-        await drone.action.set_takeoff_altitude(
-            TAKEOFF_ALTITUDE
-        )
-
-        print("Arming...")
-        await drone.action.arm()
-
-        print("Taking off...")
-        await drone.action.takeoff()
-
-        async for position in (
-            drone.telemetry.position()
-        ):
-            altitude = (
-                position.relative_altitude_m
-            )
-
-            print(
-                f"Altitude: {altitude:.2f} m"
-            )
-
-            if (
-                altitude
-                >= TAKEOFF_ALTITUDE * 0.90
-            ):
-                print(
-                    "Takeoff altitude reached!"
-                )
-                break
-
-        state = BUILD_MAP
-
-        print()
-        print(
-            f"State transition: "
-            f"TAKEOFF -> {state}"
-        )
-
-    if state == BUILD_MAP:
-        print()
-        print(
-            f"Current state: {state}"
-        )
-
-        confirmed_objects = (
-            await build_confirmed_obstacle_map(
-                drone,
-                obstacle_map,
-                get_latest_obstacles,
-            )
-        )
-
-        if not confirmed_objects:
-            print(
-                "No confirmed objects. "
-                "Mission cannot continue."
-            )
-
-            await drone.action.land()
-            return
-
-        print()
-        print(
-            f"Confirmed objects available: "
-            f"{len(confirmed_objects)}"
-        )
-
-        state = SELECT_OBJECT
-
-        print()
-        print(
-            f"State transition: "
-            f"BUILD_MAP -> {state}"
-        )
-
-    if state == SELECT_OBJECT:
-        print()
-        print(
-            f"Current state: {state}"
-        )
-
-        (
-            drone_north,
-            drone_east,
-            yaw_deg,
-        ) = await get_local_pose(drone)
-
-        (
-            selected_object,
-            selected_distance,
-        ) = select_next_object(
-            confirmed_objects,
-            drone_north,
-            drone_east,
-            inspected_object_ids,
-        )
-
-        if selected_object is None:
-            print(
-                "No uninspected object available."
-            )
-
-            await drone.action.land()
-            return
-
-        print()
-        print(
-            f"Selected Object "
-            f"{selected_object['id']}"
-        )
-
-        print(
-            f"Object position: "
-            f"N={selected_object['north_m']:.2f} | "
-            f"E={selected_object['east_m']:.2f}"
-        )
-
-        print(
-            f"Distance: "
-            f"{selected_distance:.2f} m"
-        )
-
-        state = MOVE_TO_VIEWPOINT
-
-        print()
-        print(
-            f"State transition: "
-            f"SELECT_OBJECT -> {state}"
-        )
-
-    if state == MOVE_TO_VIEWPOINT:
-        print()
-        print(
-            f"Current state: {state}"
-        )
-
-        (
-            drone_north,
-            drone_east,
-            yaw_deg,
-        ) = await get_local_pose(drone)
-
-        obstacle_north = (
-            selected_object["north_m"]
-        )
-
-        obstacle_east = (
-            selected_object["east_m"]
-        )
-
-        north_offset = (
-            obstacle_north
-            - drone_north
-        )
-
-        east_offset = (
-            obstacle_east
-            - drone_east
-        )
-
-        obstacle_distance = (
-            north_offset ** 2
-            + east_offset ** 2
-        ) ** 0.5
-
-        (
-            target_north,
-            target_east,
-        ) = calculate_viewpoint(
-            drone_north,
-            drone_east,
-            obstacle_north,
-            obstacle_east,
-            obstacle_distance,
-        )
-
-        target_down = (
-            -TAKEOFF_ALTITUDE
-        )
-
-        print(
-            f"Viewpoint: "
-            f"N={target_north:.2f} | "
-            f"E={target_east:.2f}"
-        )
-
-        print(
-            "Preparing Offboard..."
-        )
-
-        await drone.offboard.set_position_ned(
-            PositionNedYaw(
-                drone_north,
-                drone_east,
-                target_down,
-                yaw_deg,
-            )
-        )
-
-        try:
-            await drone.offboard.start()
-
-            print(
-                "Offboard started!"
-            )
-
-        except OffboardError as error:
-            print(
-                f"Offboard start failed: "
-                f"{error}"
-            )
-
-            await drone.action.land()
-            return
-
-        print(
-            f"Flying toward viewpoint "
-            f"for Object "
-            f"{selected_object['id']}..."
-        )
-
-        await drone.offboard.set_position_ned(
-            PositionNedYaw(
-                target_north,
-                target_east,
-                target_down,
-                yaw_deg,
-            )
-        )
-
-        async for position_velocity in (
-            drone.telemetry.position_velocity_ned()
-        ):
-            position = (
-                position_velocity.position
-            )
-
-            north_error = (
-                target_north
-                - position.north_m
-            )
-
-            east_error = (
-                target_east
-                - position.east_m
-            )
-
-            print(
-                f"N={position.north_m:.2f} | "
-                f"E={position.east_m:.2f} | "
-                f"N error={north_error:.2f} | "
-                f"E error={east_error:.2f}"
-            )
-
-            if (
-                abs(north_error)
-                < POSITION_TOLERANCE
-                and
-                abs(east_error)
-                < POSITION_TOLERANCE
-            ):
-                print(
-                    "Viewpoint reached!"
-                )
-                break
-
-        state = SEARCH_TARGET
-
-        print()
-        print(
-            f"State transition: "
-            f"MOVE_TO_VIEWPOINT -> {state}"
-        )
-
-    if state == SEARCH_TARGET:
-        print()
-        print(
-            f"Current state: {state}"
-        )
-
-        target = await search_target(
-            drone,
-            selected_object,
-            get_latest_frame,
-        )
-
-        if target is not None:
-            state = TRACK
-
-            print()
-            print(
-                f"State transition: "
-                f"SEARCH_TARGET -> {state}"
-            )
-
-        else:
-            inspected_object_ids.add(
-                selected_object["id"]
-            )
-
-            state = NEXT_OBJECT
-
-            print()
-            print(
-                f"Object "
-                f"{selected_object['id']} "
-                f"marked as inspected."
-            )
-
-            print(
-                f"State transition: "
-                f"SEARCH_TARGET -> {state}"
-            )
-
-    if state == TRACK:
-        print()
-        print(
-            f"Current state: {state}"
-        )
-
-        target_centered = (
-            await track_target(
-                drone,
-                get_latest_frame,
-            )
-        )
-
-        if target_centered:
-            state = CENTERED
-
-            print()
-            print(
-                f"State transition: "
-                f"TRACK -> {state}"
-            )
-
-        else:
-            state = SEARCH_TARGET
-
-            print()
-            print(
-                f"State transition: "
-                f"TRACK -> {state}"
-            )
-
-    if state == CENTERED:
-        print()
-        print(
-            f"Current state: {state}"
-        )
-
-        print()
-        print(
-            "MISSION SUCCESS!"
-        )
-
-        print(
-            "Red target found "
-            "and centered."
-        )
+    if offboard_started:
 
         await drone.offboard.set_velocity_body(
             VelocityBodyYawspeed(
@@ -474,7 +95,7 @@ async def run():
         )
 
         await asyncio.sleep(
-            3.0
+            0.3
         )
 
         try:
@@ -483,19 +104,582 @@ async def run():
         except OffboardError:
             pass
 
-        print(
-            "Landing..."
-        )
+    print(
+        "Returning to launch..."
+    )
 
-        await drone.action.land()
+    await drone.action.return_to_launch()
 
+
+async def run():
+    print(
+        "Autonomous search mission starting..."
+    )
+
+    state = TAKEOFF
+
+    confirmed_objects = []
+
+    selected_object = None
+
+    inspection_viewpoints = []
+
+    current_viewpoint_index = 0
+
+    searched_viewpoints = 0
+
+    offboard_started = False
+
+    target_yaw = 0.0
+
+    map_refresh_count = 0
+
+    sensor_node = (
+        start_sensors()
+    )
+
+    if sensor_node is None:
         return
 
-    print()
+    drone = System()
+
     print(
-        f"Current state: {state}"
+        "Connecting to PX4..."
     )
+
+    await drone.connect(
+        system_address=
+            "udpin://0.0.0.0:14540"
+    )
+
+    async for connection_state in (
+        drone.core.connection_state()
+    ):
+
+        if (
+            connection_state.is_connected
+        ):
+
+            print(
+                "Connected to PX4!"
+            )
+
+            break
+
+    print(
+        "Waiting for vehicle..."
+    )
+
+    async for health in (
+        drone.telemetry.health()
+    ):
+
+        if (
+            health.is_local_position_ok
+            and
+            health.is_home_position_ok
+            and
+            health.is_armable
+        ):
+
+            print(
+                "Vehicle ready!"
+            )
+
+            break
+
+    while True:
+
+        print()
+        print(
+            f"Current state: "
+            f"{state}"
+        )
+
+        # =====================================
+        # TAKEOFF
+        # =====================================
+
+        if state == TAKEOFF:
+
+            await drone.action.set_takeoff_altitude(
+                TAKEOFF_ALTITUDE
+            )
+
+            print(
+                "Arming..."
+            )
+
+            await drone.action.arm()
+
+            print(
+                "Taking off..."
+            )
+
+            await drone.action.takeoff()
+
+            async for position in (
+                drone.telemetry.position()
+            ):
+
+                altitude = (
+                    position.relative_altitude_m
+                )
+
+                print(
+                    f"Altitude: "
+                    f"{altitude:.2f} m"
+                )
+
+                if (
+                    altitude
+                    >= TAKEOFF_ALTITUDE
+                    * 0.90
+                ):
+
+                    print(
+                        "Takeoff altitude reached!"
+                    )
+
+                    break
+
+            state = BUILD_MAP
+
+            continue
+
+        # =====================================
+        # BUILD / REFRESH MAP
+        # =====================================
+
+        if state == BUILD_MAP:
+
+            confirmed_objects = (
+                await build_confirmed_obstacle_map(
+                    drone,
+                    obstacle_map,
+                    get_latest_obstacles,
+                    keep_offboard_alive=
+                        offboard_started,
+                )
+            )
+
+            if not confirmed_objects:
+
+                print(
+                    "No confirmed objects."
+                )
+
+                await finish_with_rtl(
+                    drone,
+                    offboard_started,
+                )
+
+                return
+
+            state = SELECT_OBJECT
+
+            continue
+
+        # =====================================
+        # SELECT OBJECT
+        # =====================================
+
+        if state == SELECT_OBJECT:
+
+            (
+                drone_north,
+                drone_east,
+                yaw_deg,
+            ) = await get_local_pose(
+                drone
+            )
+
+            (
+                selected_object,
+                selected_distance,
+            ) = select_next_object(
+                confirmed_objects,
+                drone_north,
+                drone_east,
+                inspected_object_ids,
+                unreachable_object_ids,
+            )
+
+            if (
+                selected_object is None
+            ):
+
+                map_refresh_count += 1
+
+                print()
+                print(
+                    "No selectable object."
+                )
+
+                print(
+                    f"Map refresh "
+                    f"{map_refresh_count}/"
+                    f"{MAX_MAP_REFRESHES}"
+                )
+
+                if (
+                    map_refresh_count
+                    > MAX_MAP_REFRESHES
+                ):
+
+                    await finish_with_rtl(
+                        drone,
+                        offboard_started,
+                    )
+
+                    return
+
+                state = BUILD_MAP
+
+                continue
+
+            map_refresh_count = 0
+
+            print()
+            print(
+                f"Selected Object "
+                f"{selected_object['id']}"
+            )
+
+            print(
+                f"Object position: "
+                f"N="
+                f"{selected_object['north_m']:.2f} | "
+                f"E="
+                f"{selected_object['east_m']:.2f} | "
+                f"Distance="
+                f"{selected_distance:.2f} m"
+            )
+
+            inspection_viewpoints = (
+                generate_inspection_viewpoints(
+                    drone_north,
+                    drone_east,
+                    selected_object[
+                        "north_m"
+                    ],
+                    selected_object[
+                        "east_m"
+                    ],
+                )
+            )
+
+            current_viewpoint_index = 0
+
+            searched_viewpoints = 0
+
+            print()
+            print(
+                "Generated viewpoints: "
+                f"{len(inspection_viewpoints)}"
+            )
+
+            for (
+                index,
+                viewpoint,
+            ) in enumerate(
+                inspection_viewpoints,
+                start=1,
+            ):
+
+                print(
+                    f"Viewpoint "
+                    f"{index}: "
+                    f"N="
+                    f"{viewpoint['north_m']:.2f} | "
+                    f"E="
+                    f"{viewpoint['east_m']:.2f}"
+                )
+
+            state = (
+                MOVE_TO_VIEWPOINT
+            )
+
+            continue
+
+        # =====================================
+        # MOVE TO VIEWPOINT
+        # =====================================
+
+        if state == MOVE_TO_VIEWPOINT:
+
+            viewpoint = (
+                inspection_viewpoints[
+                    current_viewpoint_index
+                ]
+            )
+
+            target_north = (
+                viewpoint["north_m"]
+            )
+
+            target_east = (
+                viewpoint["east_m"]
+            )
+
+            print()
+            print(
+                f"Moving to viewpoint "
+                f"{current_viewpoint_index + 1}/"
+                f"{len(inspection_viewpoints)}"
+            )
+
+            # -------------------------------
+            # Start Offboard once
+            # -------------------------------
+
+            if not offboard_started:
+
+                (
+                    drone_north,
+                    drone_east,
+                    current_yaw,
+                ) = await get_local_pose(
+                    drone
+                )
+
+                await drone.offboard.set_position_ned(
+                    PositionNedYaw(
+                        drone_north,
+                        drone_east,
+                        -TAKEOFF_ALTITUDE,
+                        current_yaw,
+                    )
+                )
+
+                try:
+
+                    await drone.offboard.start()
+
+                    offboard_started = True
+
+                    print(
+                        "Offboard started!"
+                    )
+
+                except OffboardError as error:
+
+                    print(
+                        f"Offboard failed: "
+                        f"{error}"
+                    )
+
+                    await drone.action.return_to_launch()
+
+                    return
+
+            reached = (
+                await navigate_to_viewpoint(
+                    drone,
+                    target_north,
+                    target_east,
+                    get_latest_obstacles,
+                )
+            )
+
+            if not reached:
+
+                print()
+                print(
+                    "Viewpoint BLOCKED."
+                )
+
+                state = NEXT_VIEWPOINT
+
+                continue
+
+            # -------------------------------
+            # Face object
+            # -------------------------------
+
+            inspection_yaw = (
+                calculate_yaw_to_target(
+                    target_north,
+                    target_east,
+                    selected_object[
+                        "north_m"
+                    ],
+                    selected_object[
+                        "east_m"
+                    ],
+                )
+            )
+
+            print()
+            print(
+                "Turning toward object..."
+            )
+
+            await align_yaw(
+                drone,
+                inspection_yaw,
+            )
+
+            target_yaw = (
+                inspection_yaw
+            )
+
+            state = SEARCH_TARGET
+
+            continue
+
+        # =====================================
+        # SEARCH TARGET
+        # =====================================
+
+        if state == SEARCH_TARGET:
+
+            searched_viewpoints += 1
+
+            target = (
+                await search_target(
+                    drone,
+                    selected_object,
+                    get_latest_frame,
+                    target_yaw,
+                )
+            )
+
+            if target is not None:
+
+                state = TRACK
+
+            else:
+
+                state = NEXT_VIEWPOINT
+
+            continue
+
+        # =====================================
+        # NEXT VIEWPOINT
+        # =====================================
+
+        if state == NEXT_VIEWPOINT:
+
+            current_viewpoint_index += 1
+
+            if (
+                current_viewpoint_index
+                < len(
+                    inspection_viewpoints
+                )
+            ):
+
+                print()
+                print(
+                    f"Trying viewpoint "
+                    f"{current_viewpoint_index + 1}/"
+                    f"{len(inspection_viewpoints)}"
+                )
+
+                state = (
+                    MOVE_TO_VIEWPOINT
+                )
+
+                continue
+
+            object_id = (
+                selected_object["id"]
+            )
+
+            if (
+                searched_viewpoints > 0
+            ):
+
+                inspected_object_ids.add(
+                    object_id
+                )
+
+                print()
+                print(
+                    f"Object "
+                    f"{object_id} "
+                    f"INSPECTED."
+                )
+
+            else:
+
+                unreachable_object_ids.add(
+                    object_id
+                )
+
+                print()
+                print(
+                    f"Object "
+                    f"{object_id} "
+                    f"UNREACHABLE."
+                )
+
+            state = SELECT_OBJECT
+
+            continue
+
+        # =====================================
+        # TRACK
+        # =====================================
+
+        if state == TRACK:
+
+            target_centered = (
+                await track_target(
+                    drone,
+                    get_latest_frame,
+                )
+            )
+
+            if target_centered:
+
+                state = CENTERED
+
+            else:
+
+                state = SEARCH_TARGET
+
+            continue
+
+        # =====================================
+        # CENTERED
+        # =====================================
+
+        if state == CENTERED:
+
+            print()
+            print(
+                "MISSION SUCCESS!"
+            )
+
+            print(
+                "Red target found "
+                "and centered."
+            )
+
+            await drone.offboard.set_velocity_body(
+                VelocityBodyYawspeed(
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+            )
+
+            await asyncio.sleep(
+                2.0
+            )
+
+            await finish_with_rtl(
+                drone,
+                offboard_started,
+            )
+
+            return
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    asyncio.run(
+        run()
+    )

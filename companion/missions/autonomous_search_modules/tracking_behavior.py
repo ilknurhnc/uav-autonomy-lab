@@ -14,20 +14,27 @@ from companion.missions.autonomous_search_modules.target_detector import (
 )
 
 
+MAX_MISSED_FRAMES = 5
+
+
 async def track_target(
     drone,
     get_latest_frame,
 ):
     print()
-    print("Tracking red target...")
+    print(
+        "Tracking red target..."
+    )
+
+    missed_frames = 0
 
     while True:
-        frame = get_latest_frame()
+
+        frame = (
+            get_latest_frame()
+        )
 
         if frame is None:
-            print(
-                "Waiting for camera frame..."
-            )
 
             await asyncio.sleep(
                 0.1
@@ -35,18 +42,52 @@ async def track_target(
 
             continue
 
-        target = detect_red_target(
-            frame
+        target = (
+            detect_red_target(
+                frame
+            )
         )
 
         if target is None:
+
+            missed_frames += 1
+
             print(
-                "Target lost during tracking."
+                f"Target temporarily lost "
+                f"{missed_frames}/"
+                f"{MAX_MISSED_FRAMES}"
             )
 
-            return False
+            await drone.offboard.set_velocity_body(
+                VelocityBodyYawspeed(
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+            )
 
-        frame_width = frame.shape[1]
+            if (
+                missed_frames
+                >= MAX_MISSED_FRAMES
+            ):
+                print(
+                    "Target lost."
+                )
+
+                return False
+
+            await asyncio.sleep(
+                0.1
+            )
+
+            continue
+
+        missed_frames = 0
+
+        frame_width = (
+            frame.shape[1]
+        )
 
         camera_center_x = (
             frame_width // 2
@@ -80,7 +121,11 @@ async def track_target(
             f"{yaw_speed:.2f}"
         )
 
-        if abs(error_x) < 20:
+        if (
+            abs(error_x)
+            < 20
+        ):
+
             await drone.offboard.set_velocity_body(
                 VelocityBodyYawspeed(
                     0.0,
